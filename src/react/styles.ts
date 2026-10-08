@@ -35,6 +35,12 @@ const CSS = `
 .dalil-thumb{position:relative;width:64px;height:64px}
 .dalil-thumb img{width:100%;height:100%;object-fit:cover;border-radius:4px;border:1px solid var(--dalil-border)}
 .dalil-thumb button{position:absolute;inset-block-start:-6px;inset-inline-end:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--dalil-fg);color:var(--dalil-bg);font-size:12px;line-height:20px;padding:0;cursor:pointer}
+.dalil-autos{display:flex;gap:8px;overflow-x:auto;padding-block:4px}
+.dalil-auto{position:relative;margin:0;flex:0 0 132px;display:flex;flex-direction:column;gap:4px}
+.dalil-auto img{width:132px;height:80px;object-fit:cover;object-position:top;border-radius:4px;border:1px solid var(--dalil-border)}
+.dalil-auto figcaption{font-size:12px;color:var(--dalil-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.dalil-auto button{position:absolute;inset-block-start:-6px;inset-inline-end:-6px;width:20px;height:20px;border-radius:50%;border:0;background:var(--dalil-fg);color:var(--dalil-bg);font-size:12px;line-height:20px;padding:0;cursor:pointer}
+.dalil-rec{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .dalil-summary summary{cursor:pointer;font-weight:600}
 .dalil-summary ul{margin:6px 0 0;padding-inline-start:18px;color:var(--dalil-muted)}
 .dalil-actions{display:flex;justify-content:flex-end;gap:8px}

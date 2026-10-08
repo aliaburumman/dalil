@@ -5,6 +5,7 @@ import { Button } from './Button'
 import type { DialogProps, DialogSnapshot } from './Dialog'
 import { defaultLabels, type Labels } from './labels'
 import { ensureStyles, type DalilTheme } from './styles'
+import type { ReplayHandle } from './replay'
 import { Toast } from './Toast'
 
 export interface DalilProviderProps extends DalilConfig {
@@ -22,6 +23,8 @@ export interface DalilProviderProps extends DalilConfig {
   accent?: string
   /** Text colour on the accent. Defaults to white; pass it whenever you pass accent. */
   accentForeground?: string
+  /** Record the last 1-2 minutes of the screen (inputs masked) for the report. Default true. */
+  replay?: boolean
   children?: ReactNode
 }
 
@@ -57,6 +60,8 @@ type State =
       Dialog: (p: DialogProps) => ReactNode
       snap: DialogSnapshot
       screenshot: { dataUrl?: string; error?: string }
+      autoSnaps: ReturnType<typeof import('./autosnap').getAutoSnaps>
+      replay: ReplayHandle | null
     }
 
 export function DalilProvider(props: DalilProviderProps) {
@@ -70,6 +75,7 @@ export function DalilProvider(props: DalilProviderProps) {
     theme = 'system',
     accent,
     accentForeground,
+    replay = true,
     children,
     ...config
   } = props
@@ -100,6 +106,49 @@ export function DalilProvider(props: DalilProviderProps) {
     ensureStyles()
   }, [])
 
+  // Failure-moment screenshots: lazy, only while enabled.
+  const autoModRef = useRef<typeof import('./autosnap') | null>(null)
+  useEffect(() => {
+    if (!enabled) return
+    let stop: (() => void) | undefined
+    let cancelled = false
+    import('./autosnap')
+      .then((m) => {
+        if (cancelled) return
+        autoModRef.current = m
+        stop = m.startAutoSnap()
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      stop?.()
+    }
+  }, [enabled])
+
+  // Session replay: lazy chunk, loaded when the browser is idle, only while enabled.
+  const replayRef = useRef<ReplayHandle | null>(null)
+  useEffect(() => {
+    if (!enabled || !replay) return
+    let cancelled = false
+    const start = () => {
+      import('./replay')
+        .then((m) => {
+          if (cancelled) return
+          replayRef.current = m.startReplay()
+        })
+        .catch(() => {})
+    }
+    const idle = typeof window.requestIdleCallback === 'function'
+    const handle = idle ? window.requestIdleCallback(start, { timeout: 3000 }) : window.setTimeout(start, 1)
+    return () => {
+      cancelled = true
+      if (idle) window.cancelIdleCallback(handle)
+      else window.clearTimeout(handle)
+      replayRef.current?.stop()
+      replayRef.current = null
+    }
+  }, [enabled, replay])
+
   const openWidget = useCallback(async () => {
     if (!enabledRef.current || phaseRef.current !== 'idle') return
     phaseRef.current = 'capturing'
@@ -113,7 +162,14 @@ export function DalilProvider(props: DalilProviderProps) {
       } catch (err) {
         shot = { error: err instanceof Error ? err.message : String(err) || 'Screenshot failed' }
       }
-      setState({ phase: 'open', Dialog: dialogMod.Dialog, snap: openedSnap, screenshot: shot })
+      setState({
+        phase: 'open',
+        Dialog: dialogMod.Dialog,
+        snap: openedSnap,
+        screenshot: shot,
+        autoSnaps: autoModRef.current?.getAutoSnaps() ?? [],
+        replay: replayRef.current,
+      })
     } catch {
       // Chunk failed to load (offline / deploy race); nothing to show.
       setState({ phase: 'idle' })
@@ -166,6 +222,8 @@ export function DalilProvider(props: DalilProviderProps) {
             getContext={getContext}
             snap={state.snap}
             screenshot={state.screenshot}
+            autoSnaps={state.autoSnaps}
+            replay={state.replay}
             onClose={close}
             onToast={setToast}
           />

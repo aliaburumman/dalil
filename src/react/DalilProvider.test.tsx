@@ -46,6 +46,9 @@ const core = vi.hoisted(() => {
       }
     },
     redactUrl: vi.fn((u: string) => u),
+    redactText: vi.fn((t: string) => t),
+    onEvent: vi.fn(() => () => {}),
+    LIMITS: { autoSnaps: 3, autoSnapBytes: 400_000, replayBytes: 5_000_000, replayDecompressedBytes: 40_000_000, bodyBytes: 8_000_000 },
   }
 })
 
@@ -56,6 +59,23 @@ const shot = vi.hoisted(() => ({
   captureScreenshot: vi.fn(async () => 'data:image/gif;base64,R0lGODlhAQABAAAAACw='),
 }))
 vi.mock('./screenshot', () => shot)
+
+const auto = vi.hoisted(() => ({
+  snaps: [] as { t: number; reason: string; label: string; eventId?: string; dataUrl: string }[],
+  startAutoSnap: vi.fn(() => () => {}),
+}))
+vi.mock('./autosnap', () => ({ getAutoSnaps: () => auto.snaps, startAutoSnap: auto.startAutoSnap }))
+
+const rep = vi.hoisted(() => {
+  const handle = {
+    stop: vi.fn(),
+    status: vi.fn(() => ({ state: 'recording' })),
+    info: vi.fn(() => ({ durationMs: 108_000, events: 40 })),
+    prepare: vi.fn(),
+  }
+  return { handle, startReplay: vi.fn(() => handle) }
+})
+vi.mock('./replay', () => ({ startReplay: rep.startReplay }))
 
 import { DalilProvider, useDalil } from './index'
 
@@ -80,6 +100,11 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
   core.submit.mockReset()
   shot.captureScreenshot.mockClear()
+  auto.snaps = []
+  auto.startAutoSnap.mockClear()
+  rep.startReplay.mockClear()
+  rep.handle.stop.mockClear()
+  rep.handle.prepare.mockReset()
 })
 afterEach(() => {
   cleanup()
@@ -264,5 +289,120 @@ describe('DalilProvider', () => {
     await openDialog()
     expect(screen.getByText('1 step')).toBeTruthy()
     expect(screen.queryByText('1 steps')).toBeNull()
+  })
+})
+
+describe('v0.2: auto-snapshots and replay', () => {
+  const GIF = 'data:image/gif;base64,R0lGODlhAQABAAAAACw='
+  const send = async () => {
+    fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'x' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send|Preparing/ }))
+    })
+    await waitFor(() => expect(core.submit).toHaveBeenCalled())
+    return core.submit.mock.calls[0] as [Record<string, unknown>, { part: string; blob: Blob }[]]
+  }
+  const waitIdle = () => waitFor(() => expect(rep.startReplay).toHaveBeenCalled())
+
+  it('starts auto-snapshots and replay only while enabled; replay={false} skips the recorder', async () => {
+    const { unmount } = render(<DalilProvider {...base} enabled={false} />)
+    await new Promise((r) => setTimeout(r, 30))
+    expect(auto.startAutoSnap).not.toHaveBeenCalled()
+    expect(rep.startReplay).not.toHaveBeenCalled()
+    unmount()
+    const r2 = render(<DalilProvider {...base} enabled replay={false} />)
+    await waitFor(() => expect(auto.startAutoSnap).toHaveBeenCalled())
+    await new Promise((r) => setTimeout(r, 30))
+    expect(rep.startReplay).not.toHaveBeenCalled()
+    r2.unmount()
+  })
+
+  it('stops the recorder when the host disables the widget', async () => {
+    const { rerender } = render(<DalilProvider {...base} enabled />)
+    await waitIdle()
+    rerender(<DalilProvider {...base} enabled={false} />)
+    expect(rep.handle.stop).toHaveBeenCalled()
+  })
+
+  it('shows the captured-automatically strip, lets the tester remove one, and sends the rest as auto_N', async () => {
+    auto.snaps = [
+      { t: 1_000, reason: 'toast', label: 'Error toast: Failed to save payment', eventId: 'e9', dataUrl: GIF },
+      { t: 2_000, reason: 'request', label: 'POST /Payment/Create → 500', eventId: 'e2', dataUrl: GIF },
+    ]
+    core.submit.mockResolvedValue({ id: 'x', ref: 'S-1', url: '' })
+    render(<DalilProvider {...base} enabled replay={false} />)
+    await waitFor(() => expect(auto.startAutoSnap).toHaveBeenCalled())
+    await openDialog()
+    expect(screen.getByText('Captured automatically')).toBeTruthy()
+    expect(screen.getByText(/Failed to save payment/)).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Remove this capture' })[0]!)
+    expect(screen.queryByText(/Failed to save payment/)).toBeNull()
+    const [payload, parts] = await send()
+    expect(payload.autoSnaps).toEqual([
+      { part: 'auto_0', t: 2_000, reason: 'request', label: 'POST /Payment/Create → 500', eventId: 'e2' },
+    ])
+    expect(parts.map((p) => p.part)).toEqual(['image_0', 'auto_0'])
+    expect(payload.replay).toBeUndefined()
+    expect(payload.replayError).toBeUndefined()
+  })
+
+  it('attaches the replay part with metadata and lists it under what will be sent', async () => {
+    rep.handle.prepare.mockResolvedValue({
+      blob: new Blob(['gz'], { type: 'application/gzip' }),
+      meta: { part: 'replay', durationMs: 108_000, events: 40, bytes: 2, rrweb: '2.1.7' },
+    })
+    core.submit.mockResolvedValue({ id: 'x', ref: 'S-1', url: '' })
+    render(<DalilProvider {...base} enabled />)
+    await waitIdle()
+    await openDialog()
+    expect(screen.getByText('Screen recording: last 1m 48s (inputs hidden)')).toBeTruthy()
+    const [payload, parts] = await send()
+    expect(payload.replay).toMatchObject({ part: 'replay', events: 40, rrweb: '2.1.7' })
+    expect(parts.map((p) => p.part)).toEqual(['image_0', 'replay'])
+  })
+
+  it('excluding the recording sends no replay part and says why', async () => {
+    core.submit.mockResolvedValue({ id: 'x', ref: 'S-1', url: '' })
+    render(<DalilProvider {...base} enabled />)
+    await waitIdle()
+    await openDialog()
+    fireEvent.click(screen.getByLabelText('Include the screen recording'))
+    const [payload, parts] = await send()
+    expect(rep.handle.prepare).not.toHaveBeenCalled()
+    expect(payload.replay).toBeUndefined()
+    expect(payload.replayError).toBe('excluded by tester')
+    expect(parts.map((p) => p.part)).toEqual(['image_0'])
+  })
+
+  it('shows "Preparing recording…" while serialising and reports a prepare error as replayError', async () => {
+    let finish!: (v: unknown) => void
+    rep.handle.prepare.mockReturnValue(new Promise((r) => (finish = r)))
+    core.submit.mockResolvedValue({ id: 'x', ref: 'S-1', url: '' })
+    render(<DalilProvider {...base} enabled />)
+    await waitIdle()
+    await openDialog()
+    fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(await screen.findByRole('button', { name: 'Preparing recording…' })).toBeTruthy()
+    await act(async () => finish({ error: 'Recording too large to send' }))
+    await waitFor(() => expect(core.submit).toHaveBeenCalled())
+    const [payload, parts] = core.submit.mock.calls[0] as [Record<string, unknown>, unknown[]]
+    expect(payload.replayError).toBe('Recording too large to send')
+    expect(parts).toHaveLength(1)
+  })
+
+  it('drops the replay first when the body would exceed the limit', async () => {
+    rep.handle.prepare.mockResolvedValue({
+      blob: new Blob([new Uint8Array(8_100_000)], { type: 'application/gzip' }),
+      meta: { part: 'replay', durationMs: 1, events: 1, bytes: 8_100_000, rrweb: '2.1.7' },
+    })
+    core.submit.mockResolvedValue({ id: 'x', ref: 'S-1', url: '' })
+    render(<DalilProvider {...base} enabled />)
+    await waitIdle()
+    await openDialog()
+    const [payload, parts] = await send()
+    expect(payload.replay).toBeUndefined()
+    expect(payload.replayError).toMatch(/size limit/)
+    expect(parts.map((p) => p.part)).toEqual(['image_0'])
   })
 })

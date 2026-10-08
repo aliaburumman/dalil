@@ -41,6 +41,13 @@ export interface Labels {
   queued: string
   rejected: string
   saveFailed: string
+  /** v0.2 labels are optional so existing hosts still compile; English defaults apply. */
+  autoCaptured?: string
+  removeAutoCaptured?: string
+  /** {duration} = e.g. "1m 48s" */
+  screenRecording?: string
+  includeRecording?: string
+  preparingRecording?: string
 }
 
 export const defaultLabels: Labels = {
@@ -79,6 +86,11 @@ export const defaultLabels: Labels = {
   sentAs: 'Sent as {ref}',
   queued: 'Saved, will send when back online',
   rejected: "The report couldn't be sent. Please try again.",
+  autoCaptured: 'Captured automatically',
+  removeAutoCaptured: 'Remove this capture',
+  screenRecording: 'Screen recording: last {duration} (inputs hidden)',
+  includeRecording: 'Include the screen recording',
+  preparingRecording: 'Preparing recording…',
   saveFailed: "You appear to be offline and the report couldn't be saved. Please try again.",
 }
 
