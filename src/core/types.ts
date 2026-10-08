@@ -201,6 +201,8 @@ export interface DalilConfig {
   redactKeys?: string[]
   /** override failure detection */
   isFailure?: (status: number, json: unknown) => boolean
+  /** v0.3: CSS selectors for error toasts; defaults cover sonner, ngx-toastr, react-toastify, notistack */
+  toastSelectors?: string[]
   bufferMs?: number // default 300_000
   bufferMax?: number // default 300
 }
