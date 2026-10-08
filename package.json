@@ -1,6 +1,6 @@
 {
   "name": "dalil",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Drop-in 'Report a bug' for React apps: steps, screenshots, FE/BE verdict and a safe curl, sent to your own collector.",
   "license": "MIT",
   "type": "module",

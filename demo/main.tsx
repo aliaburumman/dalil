@@ -9,6 +9,21 @@ const post = (path: string, body: unknown) =>
     body: JSON.stringify({ query: body }),
   })
 
+/** Mimics sonner's DOM: Dalil watches for [data-sonner-toast][data-type="error"]. */
+function showErrorToast(message: string) {
+  const el = document.createElement('li')
+  el.setAttribute('data-sonner-toast', '')
+  el.setAttribute('data-type', 'error')
+  el.setAttribute('data-id', String(Date.now()))
+  el.textContent = message
+  Object.assign(el.style, {
+    position: 'fixed', right: '16px', top: '16px', listStyle: 'none', padding: '12px 16px',
+    background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '8px', zIndex: '50',
+  })
+  document.body.appendChild(el)
+  setTimeout(() => el.remove(), 4000)
+}
+
 function Demo() {
   const { open } = useDalil()
   const [rows, setRows] = useState(0)
@@ -18,7 +33,13 @@ function Demo() {
       <h1>dalil demo</h1>
       <p>Trigger a failure, then press the floating button or Ctrl/⌘+Shift+B.</p>
       <div className="row">
-        <button onClick={() => post('/api/server-error', { playerGuid: 'abc', amount: 50 })}>500 fetch</button>
+        <button
+          onClick={() => {
+            void post('/api/server-error', { playerGuid: 'abc', amount: 50 }).then(() => showErrorToast('Failed to save payment'))
+          }}
+        >
+          500 fetch (+ error toast)
+        </button>
         <button onClick={() => post('/api/validation', { amount: -1, password: 'hunter2' })}>400 validation</button>
         <button onClick={() => post('/api/app-error', { playerGuid: 'missing' })}>200 success:false</button>
         <button
@@ -32,6 +53,11 @@ function Demo() {
         <button onClick={() => setRtl((v) => !v)}>Toggle RTL</button>
         <button onClick={open}>Open from host menu</button>
       </div>
+      {/* Cross-origin image with no CORS headers: used to sink every screenshot before 0.2.0. */}
+      <p>
+        <img src="https://example.com/logo-without-cors.png" alt="cross-origin logo" width={120} height={32} />{' '}
+        <span>(cross-origin image: the screenshot must still succeed)</span>
+      </p>
       <p className="secret" data-dalil-mask>
         Masked area: card 4111 1111 1111 1111 (should be a grey box in the screenshot)
       </p>
