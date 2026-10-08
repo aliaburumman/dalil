@@ -42,6 +42,7 @@ let lastNavUrl: string | undefined
 let inConsoleError = false
 const lastInput = new Map<string, number>()
 const openListeners = new Set<() => void>()
+const eventListeners = new Set<(e: DalilEvent) => void>()
 let nativeFetch: typeof fetch | null = null
 
 const safe = (fn: () => void) => {
@@ -86,6 +87,7 @@ function push(partial: NewEvent): DalilEvent {
   events.splice(i, 0, e)
   prune()
   scheduleMirror()
+  for (const cb of [...eventListeners]) safe(() => cb(e))
   return e
 }
 
@@ -910,6 +912,14 @@ export function onOpen(cb: () => void): () => void {
   }
 }
 
+/** Subscribes to every event as it is recorded (requests arrive on completion). Returns unsubscribe. */
+export function onEvent(cb: (e: DalilEvent) => void): () => void {
+  eventListeners.add(cb)
+  return () => {
+    eventListeners.delete(cb)
+  }
+}
+
 export function __resetForTests(): void {
   for (const r of restoreFns.reverse()) safe(r)
   restoreFns = []
@@ -921,6 +931,7 @@ export function __resetForTests(): void {
   lastNavUrl = undefined
   lastInput.clear()
   openListeners.clear()
+  eventListeners.clear()
   nativeFetch = null
   safe(() => storage()?.removeItem(STORAGE_KEY))
 }

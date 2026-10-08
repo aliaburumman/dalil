@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { __flushMirrorForTests, __resetForTests, init, log, onOpen, open, snapshot } from './recorder'
+import { __flushMirrorForTests, __resetForTests, init, log, onEvent, onOpen, open, snapshot } from './recorder'
 import type { ClickEvent, DalilConfig, RequestEvent } from './types'
 
 const API = 'https://api.thecourtspace.com'
@@ -306,5 +306,29 @@ describe('sessionStorage mirror', () => {
     expect(restored).toHaveLength(1)
     expect(restored[0]!.status).toBe(500)
     expect(snapshot().verdict.kind).toBe('backend')
+  })
+})
+
+describe('onEvent', () => {
+  it('notifies subscribers of each recorded event and stops after unsubscribe', async () => {
+    const seen: string[] = []
+    const off = onEvent((e) => seen.push(e.type))
+    log('hello', undefined, 'error')
+    await fetch(`${API}/Players`)
+    await tick()
+    expect(seen).toContain('log')
+    expect(seen).toContain('request')
+    off()
+    const n = seen.length
+    log('again')
+    expect(seen.length).toBe(n)
+  })
+
+  it('a throwing listener never breaks recording', () => {
+    onEvent(() => {
+      throw new Error('boom')
+    })
+    log('still recorded')
+    expect(snapshot().events.some((e) => e.type === 'log' && e.message === 'still recorded')).toBe(true)
   })
 })

@@ -12,10 +12,11 @@
 //   submit(payload, images)   POST multipart to config.endpoint, returns SubmitResult;
 //                       on network failure stores one pending report in IndexedDB
 //                       (24 h TTL) and flushPending() retries it on next init.
+//   onEvent(cb)         subscribe to each recorded DalilEvent; returns unsubscribe.
 //   open() / onOpen(cb) trigger the widget from host UI (button in a menu, etc).
 
 export * from './types'
-export { init, log, getConfig, snapshot, open, onOpen, __resetForTests } from './recorder'
+export { init, log, getConfig, snapshot, open, onOpen, onEvent, __resetForTests } from './recorder'
 export { classify } from './classify'
 export { toCurl } from './curl'
 export { redactJsonString, redactUrl, redactText, redactHeaders } from './redact'
