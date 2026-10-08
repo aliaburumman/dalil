@@ -6,6 +6,7 @@ import { DAY_MS, type Env, type ProjectRow, RETENTION_MS, type ReportRow } from 
 export async function runScheduled(env: Env, now = Date.now()): Promise<{ deleted: number; retried: number }> {
   const del = await env.DB.prepare('DELETE FROM reports WHERE created_at < ?').bind(now - RETENTION_MS).run()
   await env.DB.prepare('DELETE FROM ingest_hits WHERE at < ?').bind(now - DAY_MS).run()
+  await env.DB.prepare('DELETE FROM replay_hits WHERE at < ?').bind(now - DAY_MS).run()
 
   // 'failed' within 7 days, plus 'pending' rows older than an hour (the waitUntil was lost).
   const { results } = await env.DB.prepare(

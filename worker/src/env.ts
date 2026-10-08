@@ -11,6 +11,8 @@ export interface Env {
   HOURLY_LIMIT?: string
   /** secret: `wrangler secret put RESEND_API_KEY` */
   RESEND_API_KEY?: string
+  /** static assets (vendored rrweb-player), see wrangler.jsonc "assets" */
+  ASSETS: Fetcher
 }
 
 export interface ProjectRow {
@@ -39,6 +41,9 @@ export interface ReportRow {
   r2_prefix: string
   email_status: string
   scrubbed: number
+  has_replay: number
+  auto_snaps: number
+  replay_dropped: number
 }
 
 export const DAY_MS = 86_400_000

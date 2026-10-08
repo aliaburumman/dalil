@@ -1,3 +1,5 @@
+import { AUTO_PART } from './limits'
+
 const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 
 /** Escape any value for HTML text or a double/single-quoted attribute. */
@@ -64,4 +66,9 @@ export function json(body: unknown, status = 200, headers: HeadersInit = {}): Re
 
 export function formatTime(ms: number): string {
   return `${new Date(ms).toISOString().replace('T', ' ').slice(0, 19)} UTC`
+}
+
+/** R2 key suffix for a part. Auto snapshots are always stored as auto_N.jpg (content type is in metadata). */
+export function partKey(part: string): string {
+  return AUTO_PART.test(part) ? `${part}.jpg` : part
 }

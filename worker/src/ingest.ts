@@ -1,16 +1,18 @@
 // POST /v1/reports and its CORS preflight (design §3 "Collector").
 import { deliverEmail, refOf, type StoredImage } from './email'
 import type { Env, ProjectRow, ReportRow } from './env'
-import { PAYLOAD_VERSION, type ReportPayload, type SubmitResult } from './payload'
-import { checkRateLimits } from './ratelimit'
+import { AUTO_PART, IMAGE_PART, LIMITS } from './limits'
+import { type ReportPayload, SUPPORTED_VERSIONS, type SubmitResult } from './payload'
+import { checkRateLimits, takeReplaySlot } from './ratelimit'
 import { scrubSecrets } from './scrub'
 import { failedRequests } from './steps'
-import { json, parseJsonArray, timingSafeEqual } from './util'
+import { json, parseJsonArray, partKey, timingSafeEqual } from './util'
 
-export const MAX_BODY = 8 * 1024 * 1024
-export const MAX_REPORT = 1024 * 1024
-export const MAX_IMAGES = 6
-const IMAGE_PART = /^image_[0-5]$/
+const REPLAY_PART = 'replay'
+
+export const MAX_BODY = LIMITS.bodyBytes
+export const MAX_REPORT = LIMITS.reportBytes
+export const MAX_IMAGES = LIMITS.images
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const SEVERITIES = new Set(['blocker', 'annoying', 'minor'])
 
@@ -84,10 +86,32 @@ function sniffImage(b: Uint8Array): string | null {
   return null
 }
 
+/**
+ * Streams the gzip through DecompressionStream, counting bytes without keeping them.
+ * 'bomb' = decompressed size over the cap; 'corrupt' = not valid gzip.
+ */
+async function checkGzip(bytes: Uint8Array, cap: number): Promise<'ok' | 'bomb' | 'corrupt'> {
+  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader()
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return 'ok'
+      total += value.byteLength
+      if (total > cap) {
+        await reader.cancel().catch(() => undefined)
+        return 'bomb'
+      }
+    }
+  } catch {
+    return 'corrupt'
+  }
+}
+
 function validatePayload(p: unknown, projectId: string): string | null {
   if (!p || typeof p !== 'object') return 'report must be a JSON object'
   const r = p as Partial<ReportPayload>
-  if (r.v !== PAYLOAD_VERSION) return `unsupported payload version (expected ${PAYLOAD_VERSION})`
+  if (typeof r.v !== 'number' || !SUPPORTED_VERSIONS.includes(r.v)) return `unsupported payload version (expected ${SUPPORTED_VERSIONS.join(' or ')})`
   if (r.project !== projectId) return 'report.project does not match X-Dalil-Project'
   if (typeof r.title !== 'string' || !r.title.trim()) return 'title is required'
   if (!r.severity || !SEVERITIES.has(r.severity)) return 'invalid severity'
@@ -142,10 +166,13 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
     return fail('malformed multipart body', 400)
   }
 
-  // Parts: exactly one "report", plus image_0..image_5.
+  // Parts: exactly one "report", image_0..image_5, auto_0..auto_2, and an optional "replay".
   let reportText: string | null = null
   const images: StoredImage[] = []
+  const autos: StoredImage[] = []
+  let replayBytes: Uint8Array | null = null
   let imageCount = 0
+  let autoCount = 0
   for (const [name, value] of form.entries()) {
     if (name === 'report') {
       const text = typeof value === 'string' ? value : await (value as unknown as Blob).text()
@@ -153,14 +180,29 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
       reportText = text
       continue
     }
-    if (!IMAGE_PART.test(name)) return fail(`unexpected part "${name}"`, 400)
-    if (++imageCount > MAX_IMAGES) return fail(`too many images (max ${MAX_IMAGES})`, 400)
+    const isImage = IMAGE_PART.test(name)
+    const isAuto = AUTO_PART.test(name)
+    if (!isImage && !isAuto && name !== REPLAY_PART) return fail(`unexpected part "${name}"`, 400)
+    if (isImage && ++imageCount > MAX_IMAGES) return fail(`too many images (max ${MAX_IMAGES})`, 400)
+    if (isAuto && ++autoCount > LIMITS.autoSnaps) return fail(`too many auto snapshots (max ${LIMITS.autoSnaps})`, 400)
     if (typeof value === 'string') return fail(`${name} must be a file`, 400)
     const file = value as unknown as File
     const bytes = new Uint8Array(await file.arrayBuffer())
+    if (name === REPLAY_PART) {
+      if (replayBytes) return fail('duplicate replay part', 400)
+      if (bytes.byteLength > LIMITS.replayBytes) return fail(`replay too large (max ${LIMITS.replayBytes / 1_000_000} MB compressed)`, 413)
+      if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return fail('replay must be gzip', 400)
+      const verdict = await checkGzip(bytes, LIMITS.replayDecompressedBytes)
+      if (verdict === 'bomb') return fail(`replay too large when decompressed (max ${LIMITS.replayDecompressedBytes / 1_000_000} MB)`, 413)
+      if (verdict === 'corrupt') return fail('replay is not valid gzip', 400)
+      replayBytes = bytes
+      continue
+    }
+    const cap = isAuto ? LIMITS.autoSnapBytes : LIMITS.imageBytes
+    if (bytes.byteLength > cap) return fail(`${name} too large (max ${cap / 1000} KB)`, 413)
     const sniffed = sniffImage(bytes)
     if (!IMAGE_TYPES.has(file.type) || !sniffed) return fail(`${name}: only jpeg, png or webp`, 400)
-    images.push({ part: name, name: file.name || name, kind: 'attachment', type: sniffed, bytes })
+    ;(isAuto ? autos : images).push({ part: name, name: file.name || name, kind: isAuto ? 'auto' : 'attachment', type: sniffed, bytes })
   }
   if (reportText === null) return fail('missing "report" part', 400)
 
@@ -182,8 +224,23 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
       if (meta.name) img.name = meta.name
     }
   }
-  // Keep payload.images consistent with what was actually stored.
-  payload.images = images.map((i) => ({ part: i.part, kind: i.kind, name: i.name }))
+  // Keep payload.images consistent with what was actually stored (auto snaps included).
+  payload.images = [...images, ...autos].map((i) => ({ part: i.part, kind: i.kind, name: i.name }))
+  const autoParts = new Set(autos.map((a) => a.part))
+  if (payload.autoSnaps !== undefined) {
+    payload.autoSnaps = Array.isArray(payload.autoSnaps) ? payload.autoSnaps.filter((a) => a && autoParts.has(a.part)) : []
+  }
+
+  // Replay: hourly cap per ip+project; over it the report is kept and the replay dropped.
+  let replayDropped = false
+  if (replayBytes && !(await takeReplaySlot(env, project.id, ip))) {
+    replayBytes = null
+    replayDropped = true
+    delete payload.replay
+    payload.replayError = 'replay dropped: hourly replay limit reached for this client'
+  } else if (!replayBytes) {
+    delete payload.replay
+  }
 
   const id = crypto.randomUUID()
   const now = Date.now()
@@ -195,8 +252,9 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
   const seq = await insertWithSeq(async () => {
     const row = await env.DB.prepare(
       `INSERT INTO reports (id, project_id, seq, title, verdict_kind, verdict_headline, severity,
-                            page_url, reporter, request_ids, created_at, r2_prefix, scrubbed)
-       SELECT ?1, ?2, COALESCE(MAX(seq), 0) + 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+                            page_url, reporter, request_ids, created_at, r2_prefix, scrubbed,
+                            has_replay, auto_snaps, replay_dropped)
+       SELECT ?1, ?2, COALESCE(MAX(seq), 0) + 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
        FROM reports WHERE project_id = ?2
        RETURNING seq`,
     )
@@ -213,6 +271,9 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
         now,
         r2Prefix,
         scrubbed ? 1 : 0,
+        replayBytes ? 1 : 0,
+        autos.length,
+        replayDropped ? 1 : 0,
       )
       .first<{ seq: number }>()
     if (!row) throw new Error('insert returned no seq')
@@ -220,17 +281,18 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
   })
 
   const stored = JSON.stringify(payload)
+  const allImages = [...images, ...autos]
+  const keys = [`${r2Prefix}report.json`, ...allImages.map((i) => `${r2Prefix}${partKey(i.part)}`), ...(replayBytes ? [`${r2Prefix}replay.json.gz`] : [])]
   try {
     await Promise.all([
       env.BUCKET.put(`${r2Prefix}report.json`, stored, { httpMetadata: { contentType: 'application/json' } }),
-      ...images.map((img) => env.BUCKET.put(`${r2Prefix}${img.part}`, img.bytes, { httpMetadata: { contentType: img.type } })),
+      ...allImages.map((img) => env.BUCKET.put(`${r2Prefix}${partKey(img.part)}`, img.bytes, { httpMetadata: { contentType: img.type } })),
+      ...(replayBytes ? [env.BUCKET.put(`${r2Prefix}replay.json.gz`, replayBytes, { httpMetadata: { contentType: 'application/gzip' } })] : []),
     ])
   } catch (err) {
     console.error(`dalil: R2 write failed for ${id}: ${String(err)}`)
     await env.DB.prepare('DELETE FROM reports WHERE id = ?').bind(id).run()
-    ctx.waitUntil(
-      env.BUCKET.delete([`${r2Prefix}report.json`, ...images.map((i) => `${r2Prefix}${i.part}`)]).catch(() => undefined),
-    )
+    ctx.waitUntil(env.BUCKET.delete(keys).catch(() => undefined))
     return fail('storage failed, please retry', 500)
   }
 
@@ -253,8 +315,11 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
     r2_prefix: r2Prefix,
     email_status: 'pending',
     scrubbed: scrubbed ? 1 : 0,
+    has_replay: replayBytes ? 1 : 0,
+    auto_snaps: autos.length,
+    replay_dropped: replayDropped ? 1 : 0,
   }
-  ctx.waitUntil(deliverEmail(env, row, project, { payload, images }))
+  ctx.waitUntil(deliverEmail(env, row, project, { payload, images: allImages }))
 
   return json(result, 201, cors)
 }
