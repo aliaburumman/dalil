@@ -1,6 +1,7 @@
 // Lazy chunk: the report dialog. Rendered only after the screenshot attempt finished.
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
+  DalilSubmitError,
   PAYLOAD_VERSION,
   redactUrl,
   submit,
@@ -57,14 +58,6 @@ function buildEnv(): Environment {
     viewport: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 },
     online: navigator.onLine,
   }
-}
-
-function errorCode(err: unknown): string | undefined {
-  if (err && typeof err === 'object' && 'code' in err) {
-    const c = (err as { code: unknown }).code
-    return typeof c === 'string' ? c : undefined
-  }
-  return undefined
 }
 
 const FOCUSABLE =
@@ -167,7 +160,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, onC
       onToast(fmt(labels.sentAs, { ref: res.ref }))
       onClose()
     } catch (err) {
-      if (errorCode(err) === 'queued') {
+      if (err instanceof DalilSubmitError && err.code === 'queued') {
         onToast(labels.queued)
         onClose()
         return

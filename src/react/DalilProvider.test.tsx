@@ -38,6 +38,13 @@ const core = vi.hoisted(() => {
       return () => listeners.delete(cb)
     }),
     submit: vi.fn(),
+    DalilSubmitError: class DalilSubmitError extends Error {
+      code: string
+      constructor(code: string, message: string) {
+        super(message)
+        this.code = code
+      }
+    },
     redactUrl: vi.fn((u: string) => u),
   }
 })
@@ -187,7 +194,7 @@ describe('DalilProvider', () => {
   })
 
   it("'queued' closes with the offline toast", async () => {
-    core.submit.mockRejectedValue(Object.assign(new Error('offline'), { code: 'queued' }))
+    core.submit.mockRejectedValue(new core.DalilSubmitError('queued', 'offline'))
     render(<DalilProvider {...base} enabled />)
     await openDialog()
     fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'x' } })
@@ -197,7 +204,7 @@ describe('DalilProvider', () => {
   })
 
   it("'rejected' keeps the form and shows an inline error", async () => {
-    core.submit.mockRejectedValue(Object.assign(new Error('400'), { code: 'rejected' }))
+    core.submit.mockRejectedValue(new core.DalilSubmitError('rejected', '400'))
     render(<DalilProvider {...base} enabled />)
     await openDialog()
     fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'kept text' } })
