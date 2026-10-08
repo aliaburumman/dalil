@@ -5,12 +5,15 @@
 import type { Env, ProjectRow, ReportRow } from './env'
 import type { ReportPayload } from './payload'
 import { failedRequests, failedRequestTitle, kindLabel, stepHtml } from './steps'
-import { esc, formatTime, parseJsonArray, toBase64, truncate } from './util'
+import { esc, formatTime, parseJsonArray, partKey, toBase64, truncate } from './util'
+
+/** Total attachment budget; anything beyond is only linked from the report page. */
+export const MAIL_ATTACH_BUDGET = 5_000_000
 
 export interface StoredImage {
   part: string
   name: string
-  kind: 'screenshot' | 'attachment'
+  kind: 'screenshot' | 'attachment' | 'auto'
   type: string
   bytes: Uint8Array
 }
@@ -26,7 +29,15 @@ export function buildSubject(ref: string, p: ReportPayload): string {
 
 const PRE = 'style="background:#f4f4f5;padding:8px;border-radius:4px;white-space:pre-wrap;word-break:break-all;font-size:12px"'
 
-export function buildHtml(ref: string, row: ReportRow, p: ReportPayload, link: string, hasInline: boolean): string {
+export interface InlineInfo {
+  /** cid of the hero image: newest auto snapshot, else the on-open screenshot */
+  hero?: 'autosnap' | 'screenshot'
+  /** also show the on-open screenshot inline (only when the hero is an auto snapshot) */
+  screenshot?: boolean
+  heroCaption?: string
+}
+
+export function buildHtml(ref: string, row: ReportRow, p: ReportPayload, link: string, inline: InlineInfo = {}): string {
   const c = p.context ?? {}
   const who = [c.userName, c.email, c.role].filter(Boolean).join(' · ') || 'unknown user'
   const where = [c.tenant, p.env?.url].filter(Boolean).join(' · ')
@@ -44,9 +55,14 @@ export function buildHtml(ref: string, row: ReportRow, p: ReportPayload, link: s
   parts.push(
     `<table style="font-size:13px;margin-bottom:12px"><tr><td style="color:#71717a;padding-right:8px">Who</td><td>${esc(who)}</td></tr><tr><td style="color:#71717a;padding-right:8px">Where</td><td>${esc(where)}</td></tr><tr><td style="color:#71717a;padding-right:8px">When</td><td>${esc(formatTime(row.created_at))}</td></tr>${c.appVersion ? `<tr><td style="color:#71717a;padding-right:8px">Version</td><td>${esc(c.appVersion)}</td></tr>` : ''}</table>`,
   )
-  parts.push(`<p><a href="${esc(link)}">Open the report page →</a></p>`)
-  if (hasInline) parts.push(`<p><img src="cid:screenshot" alt="Screenshot" style="max-width:100%;border:1px solid #e4e4e7"></p>`)
-  else if (p.screenshotError) parts.push(`<p style="color:#71717a">No screenshot: ${esc(p.screenshotError)}</p>`)
+  parts.push(`<p><a href="${esc(link)}">Open the report page →</a>${row.has_replay ? ` &nbsp;·&nbsp; <a href="${esc(link)}#replay">▶ Watch the last 2 minutes</a>` : ''}</p>`)
+  const IMG = 'style="max-width:100%;border:1px solid #e4e4e7"'
+  if (inline.hero) {
+    const cid = inline.hero === 'autosnap' ? 'autosnap' : 'screenshot'
+    parts.push(`<p style="margin-bottom:2px"><img src="cid:${cid}" alt="${esc(inline.heroCaption ?? 'Screenshot')}" ${IMG}></p>`)
+    if (inline.heroCaption) parts.push(`<p style="margin-top:0;color:#71717a;font-size:13px">${esc(inline.heroCaption)}</p>`)
+    if (inline.screenshot) parts.push(`<p style="margin-bottom:2px;color:#71717a;font-size:13px">Screenshot when the report was opened</p><p style="margin-top:0"><img src="cid:screenshot" alt="Screenshot" ${IMG}></p>`)
+  } else if (p.screenshotError) parts.push(`<p style="color:#71717a">No screenshot: ${esc(p.screenshotError)}</p>`)
 
   if (steps.length) {
     parts.push(`<h3>Steps</h3><ol style="font-size:14px">${steps.map((s) => `<li>${s}</li>`).join('')}</ol>`)
@@ -94,11 +110,32 @@ export async function sendReportEmail(
   const screenshot = images.find((i) => i.kind === 'screenshot')
   const ext = (t: string) => (t === 'image/png' ? 'png' : t === 'image/webp' ? 'webp' : 'jpg')
 
-  const attachments = images.map((img) =>
-    img === screenshot
-      ? { filename: `screenshot.${ext(img.type)}`, content: toBase64(img.bytes), content_id: 'screenshot' }
-      : { filename: img.name || `${img.part}.${ext(img.type)}`, content: toBase64(img.bytes) },
-  )
+  // Hero = newest auto snapshot that was actually stored, else the on-open screenshot.
+  const stored = new Map(images.filter((i) => i.kind === 'auto').map((i) => [i.part, i]))
+  const newest = [...(payload.autoSnaps ?? [])].filter((a) => stored.has(a.part)).sort((a, b) => b.t - a.t)[0]
+  const auto = newest ? stored.get(newest.part) : undefined
+
+  // At most one auto snapshot (the hero) is attached, plus the on-open screenshot and
+  // tester images, within a 5 MB total; the rest are only linked from the report page.
+  let budget = MAIL_ATTACH_BUDGET
+  const attachments: { filename: string; content: string; content_id?: string }[] = []
+  const take = (img: StoredImage, extra: { filename: string; content_id?: string }) => {
+    if (img.bytes.byteLength > budget) return false
+    budget -= img.bytes.byteLength
+    attachments.push({ ...extra, content: toBase64(img.bytes) })
+    return true
+  }
+  const heroOk = auto ? take(auto, { filename: `auto-snapshot.${ext(auto.type)}`, content_id: 'autosnap' }) : false
+  const shotOk = screenshot ? take(screenshot, { filename: `screenshot.${ext(screenshot.type)}`, content_id: 'screenshot' }) : false
+  for (const img of images) {
+    if (img.kind !== 'attachment') continue
+    take(img, { filename: img.name || `${img.part}.${ext(img.type)}` })
+  }
+  const inline: InlineInfo = heroOk
+    ? { hero: 'autosnap', screenshot: shotOk, heroCaption: `${formatTime(newest!.t).slice(11)} · ${newest!.label}` }
+    : shotOk
+      ? { hero: 'screenshot' }
+      : {}
 
   try {
     const res = await fetch('https://api.resend.com/emails', {
@@ -108,7 +145,7 @@ export async function sendReportEmail(
         from: env.MAIL_FROM,
         to,
         subject: buildSubject(ref, payload),
-        html: buildHtml(ref, row, payload, link, !!screenshot),
+        html: buildHtml(ref, row, payload, link, inline),
         ...(attachments.length ? { attachments } : {}),
       }),
     })
@@ -139,7 +176,7 @@ export async function loadStored(env: Env, row: ReportRow): Promise<{ payload: R
   const payload = (await obj.json()) as ReportPayload
   const images: StoredImage[] = []
   for (const meta of payload.images ?? []) {
-    const img = await env.BUCKET.get(`${row.r2_prefix}${meta.part}`)
+    const img = await env.BUCKET.get(`${row.r2_prefix}${partKey(meta.part)}`)
     if (!img) continue
     images.push({
       part: meta.part,

@@ -3,11 +3,12 @@
 import { loadStored, refOf } from './email'
 import type { Env, ReportRow } from './env'
 import { getProject } from './ingest'
+import { AUTO_PART, IMAGE_PART } from './limits'
+import { PLAYER_VERSION } from './player-version'
 import { failedRequests, failedRequestTitle, kindLabel, relTime, timelineHtml } from './steps'
-import { esc, formatTime } from './util'
+import { esc, formatTime, partKey } from './util'
 
 export const STATUSES = ['new', 'seen', 'fixed', 'wontfix'] as const
-const IMAGE_PART = /^image_[0-5]$/
 const ID = /^[0-9a-f-]{36}$/
 
 async function getReport(env: Env, id: string): Promise<ReportRow | null> {
@@ -28,6 +29,39 @@ export async function handleImage(env: Env, id: string, part: string): Promise<R
       'content-type': obj.httpMetadata?.contentType ?? 'application/octet-stream',
       'x-content-type-options': 'nosniff',
       'cache-control': 'private, max-age=3600',
+      'content-security-policy': "default-src 'none'",
+    },
+  })
+}
+
+export async function handleAuto(env: Env, id: string, n: string): Promise<Response> {
+  const part = `auto_${n}`
+  if (!AUTO_PART.test(part)) return notFound()
+  const row = await getReport(env, id)
+  if (!row) return notFound()
+  const obj = await env.BUCKET.get(`${row.r2_prefix}${partKey(part)}`)
+  if (!obj) return notFound()
+  return new Response(obj.body, {
+    headers: {
+      'content-type': obj.httpMetadata?.contentType ?? 'image/jpeg',
+      'x-content-type-options': 'nosniff',
+      'cache-control': 'private, max-age=3600',
+      'content-security-policy': "default-src 'none'",
+    },
+  })
+}
+
+/** The gzip is streamed as stored; the browser decompresses it (DecompressionStream). */
+export async function handleReplay(env: Env, id: string): Promise<Response> {
+  const row = await getReport(env, id)
+  if (!row || !row.has_replay) return notFound()
+  const obj = await env.BUCKET.get(`${row.r2_prefix}replay.json.gz`)
+  if (!obj) return notFound()
+  return new Response(obj.body, {
+    headers: {
+      'content-type': 'application/gzip',
+      'x-content-type-options': 'nosniff',
+      'cache-control': 'private, no-store',
       'content-security-policy': "default-src 'none'",
     },
   })
@@ -61,7 +95,43 @@ ol.tl{padding-left:24px}ol.tl li{margin:2px 0}.t{color:var(--muted);font-size:12
 .req{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:10px 0}.req h3{font-size:15px;margin:0 0 4px;color:var(--bad)}
 button,select{font:inherit;padding:4px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
 form.status{display:flex;gap:8px;align-items:center;margin-top:8px}table.kv td{padding:2px 12px 2px 0;vertical-align:top}table.kv td:first-child{color:var(--muted)}
-a{color:var(--accent)}`
+a{color:var(--accent)}.marks{margin:6px 0}.marks button{margin:2px 4px 2px 0}figure{margin:6px 0}`
+
+const REPLAY_JS = `
+(function(){
+  var box=document.getElementById('replay-box');if(!box)return;
+  var id=box.getAttribute('data-id');
+  function msg(t){box.textContent=t}
+  function flat(d){
+    if(d&&!Array.isArray(d)&&Array.isArray(d.events))d=d.events;
+    if(!Array.isArray(d))return [];
+    var out=[];d.forEach(function(x){if(Array.isArray(x))out=out.concat(flat(x));else if(x&&typeof x==='object')out.push(x)});return out
+  }
+  if(typeof DecompressionStream==='undefined'){msg('This browser cannot decompress the recording (no DecompressionStream).');return}
+  var P=window.rrwebPlayer;P=P&&P.default?P.default:P;
+  if(!P){msg('The player failed to load.');return}
+  fetch('/r/'+id+'/replay',{credentials:'same-origin'}).then(function(r){
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    return new Response(r.body.pipeThrough(new DecompressionStream('gzip'))).text()
+  }).then(function(text){
+    var events=flat(JSON.parse(text)).sort(function(a,b){return a.timestamp-b.timestamp});
+    if(events.length<2)throw new Error('recording has too few events');
+    var first=events[0].timestamp;box.textContent='';
+    var width=Math.min(box.clientWidth||900,940);
+    var player=new P({target:box,props:{events:events,width:width,height:Math.round(width*0.6),autoPlay:false,showController:true}});
+    var marks=events.filter(function(e){return e.type===5&&e.data&&e.data.tag==='dalil'});
+    if(marks.length){
+      var bar=document.getElementById('replay-marks');bar.textContent='Jump to: ';
+      marks.forEach(function(e){
+        var pl=e.data.payload||{};var b=document.createElement('button');b.type='button';
+        var secs=Math.max(0,Math.round((e.timestamp-first)/1000));
+        b.textContent=String(pl.label||pl.kind||'event')+' ('+Math.floor(secs/60)+':'+('0'+(secs%60)).slice(-2)+')';
+        b.addEventListener('click',function(){player.goto(Math.max(0,e.timestamp-first-1500),true)});
+        bar.appendChild(b);bar.appendChild(document.createTextNode(' '));
+      });
+    }
+  }).catch(function(e){msg('Could not load the recording: '+(e&&e.message?e.message:e))});
+})();`
 
 const JS = `
 document.querySelectorAll('button[data-copy]').forEach(function(b){b.addEventListener('click',function(){
@@ -83,7 +153,9 @@ export async function handlePage(env: Env, id: string): Promise<Response> {
 
   const h: string[] = []
   h.push(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`)
-  h.push(`<meta name="color-scheme" content="light dark"><title>${esc(ref)} · ${esc(row.title)}</title><style>${CSS}</style></head><body><main>`)
+  h.push(`<meta name="color-scheme" content="light dark"><title>${esc(ref)} · ${esc(row.title)}</title><style>${CSS}</style>`)
+  if (row.has_replay) h.push(`<link rel="stylesheet" href="/assets/rrweb-player.${PLAYER_VERSION}.css">`)
+  h.push(`</head><body><main>`)
   h.push(`<div class="meta">${esc(project?.name ?? row.project_id)} · ${esc(ref)}</div>`)
   h.push(`<h1>${esc(row.title)}</h1>`)
   h.push(
@@ -107,7 +179,24 @@ export async function handlePage(env: Env, id: string): Promise<Response> {
     if (p.env) h.push(`<tr><td>Browser</td><td>${esc(p.env.userAgent)} · ${esc(p.env.language)} · ${esc(p.env.timezone)} · ${esc(p.env.viewport?.w)}×${esc(p.env.viewport?.h)}@${esc(p.env.viewport?.dpr)}${p.env.online === false ? ' · offline' : ''}</td></tr>`)
     h.push(`</table>`)
 
-    const imgs = stored.images
+    // Replay first: it is the primary evidence.
+    if (row.has_replay) {
+      h.push(`<h2 id="replay">Replay</h2><div id="replay-marks" class="marks"></div><div id="replay-box" data-id="${esc(row.id)}" class="meta">Loading recording…</div>`)
+    } else if (p.replayError) {
+      h.push(`<h2 id="replay">Replay</h2><p class="meta">No recording: ${esc(p.replayError)}</p>`)
+    }
+
+    const autoMeta = (p.autoSnaps ?? []).filter((a) => stored.images.some((i) => i.part === a.part))
+    if (autoMeta.length) {
+      h.push(`<h2>Captured automatically</h2><div class="shots">`)
+      for (const a of autoMeta) {
+        const n = a.part.replace('auto_', '')
+        h.push(`<figure><figcaption class="meta">${esc(formatTime(a.t).slice(11))} · ${esc(a.label)}</figcaption><a href="/r/${esc(row.id)}/auto/${esc(n)}"><img src="/r/${esc(row.id)}/auto/${esc(n)}" alt="${esc(a.label)}"></a></figure>`)
+      }
+      h.push(`</div>`)
+    }
+
+    const imgs = stored.images.filter((i) => i.kind !== 'auto')
     if (imgs.length) {
       h.push(`<h2>Screenshots</h2><div class="shots">`)
       for (const img of imgs) h.push(`<a href="/r/${esc(row.id)}/img/${esc(img.part)}"><img src="/r/${esc(row.id)}/img/${esc(img.part)}" alt="${esc(img.name)}"></a>`)
@@ -143,11 +232,13 @@ export async function handlePage(env: Env, id: string): Promise<Response> {
     }
   }
 
-  h.push(`</main><script nonce="${nonce}">${JS}</script></body></html>`)
+  h.push(`</main>`)
+  if (row.has_replay) h.push(`<script src="/assets/rrweb-player.${PLAYER_VERSION}.js" nonce="${nonce}"></script><script nonce="${nonce}">${REPLAY_JS}</script>`)
+  h.push(`<script nonce="${nonce}">${JS}</script></body></html>`)
   return new Response(h.join(''), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
-      'content-security-policy': `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
+      'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}' 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https:; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`,
       'x-content-type-options': 'nosniff',
       'referrer-policy': 'no-referrer',
       'cache-control': 'private, no-store',

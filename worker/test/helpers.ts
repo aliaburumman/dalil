@@ -16,6 +16,7 @@ export function testEnv(overrides: Partial<Env> = {}): Env {
     MAIL_FROM: env.MAIL_FROM,
     HOURLY_LIMIT: env.HOURLY_LIMIT,
     RESEND_API_KEY: env.RESEND_API_KEY,
+    ASSETS: env.ASSETS,
     ...overrides,
   }
 }
@@ -24,6 +25,7 @@ export async function seed(): Promise<void> {
   await env.DB.batch([
     env.DB.prepare('DELETE FROM reports'),
     env.DB.prepare('DELETE FROM ingest_hits'),
+    env.DB.prepare('DELETE FROM replay_hits'),
     env.DB.prepare('DELETE FROM projects'),
     env.DB.prepare(
       `INSERT INTO projects (id, name, public_key, allowed_origins, notify_emails, key_prefix, created_at)

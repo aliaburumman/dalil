@@ -234,3 +234,204 @@ describe('scheduled', () => {
   })
 })
 
+
+// ---- v0.2: replay + auto snapshots ----------------------------------------------------
+
+async function gzip(data: Uint8Array | string): Promise<Uint8Array> {
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))
+  return new Uint8Array(await new Response(stream).arrayBuffer())
+}
+
+const PLAYER = (await import('../src/player-version')).PLAYER_VERSION
+const jpegN = (n: number) => {
+  const b = new Uint8Array(JPEG.length + n)
+  b.set(JPEG)
+  return b
+}
+
+function v2(over: Record<string, unknown> = {}) {
+  const t = Date.now()
+  return payload({
+    v: 2,
+    images: [
+      { part: 'image_0', kind: 'screenshot', name: 'screenshot.jpg' },
+      { part: 'auto_0', kind: 'auto', name: 'a0.jpg' },
+      { part: 'auto_1', kind: 'auto', name: 'a1.jpg' },
+      { part: 'auto_2', kind: 'auto', name: 'a2.jpg' },
+    ],
+    autoSnaps: [
+      { part: 'auto_0', t: t - 3000, reason: 'request', label: 'POST /Payment/Create → 500' },
+      { part: 'auto_1', t: t - 2000, reason: 'toast', label: 'Error toast: Failed to save payment' },
+      { part: 'auto_2', t: t - 1000, reason: 'error', label: 'TypeError: boom' },
+    ],
+    replay: { part: 'replay', durationMs: 5000, events: 3, bytes: 1, rrweb: '2.0.0' },
+    ...over,
+  } as never)
+}
+
+const REPLAY_JSON = JSON.stringify([
+  { type: 4, timestamp: 1000, data: {} },
+  { type: 2, timestamp: 1001, data: {} },
+  { type: 5, timestamp: 4000, data: { tag: 'dalil', payload: { kind: 'toast', label: 'Toast <b>x</b>' } } },
+])
+
+async function v2Form(replay: Uint8Array | null, extra: Record<string, { bytes: Uint8Array; type: string }> = {}, p: unknown = v2()) {
+  const images: Record<string, { bytes: Uint8Array; type: string }> = {
+    image_0: { bytes: JPEG, type: 'image/jpeg' },
+    auto_0: { bytes: jpegN(10), type: 'image/jpeg' },
+    auto_1: { bytes: jpegN(20), type: 'image/jpeg' },
+    auto_2: { bytes: jpegN(30), type: 'image/jpeg' },
+    ...extra,
+  }
+  if (replay) images.replay = { bytes: replay, type: 'application/gzip' }
+  return form(p, images)
+}
+
+describe('v0.2 ingest', () => {
+  it('still accepts a v1 payload', async () => {
+    const res = await call(ingestRequest(form(payload({ v: 1 } as never))))
+    expect(res.status).toBe(201)
+    const { id } = (await res.json()) as { id: string }
+    expect(await row(id)).toMatchObject({ has_replay: 0, auto_snaps: 0, replay_dropped: 0 })
+  })
+
+  it('stores v2 replay + 3 auto snaps and serves them', async () => {
+    const gz = await gzip(REPLAY_JSON)
+    const res = await call(ingestRequest(await v2Form(gz)))
+    expect(res.status).toBe(201)
+    const { id } = (await res.json()) as { id: string }
+    expect(await row(id)).toMatchObject({ has_replay: 1, auto_snaps: 3, replay_dropped: 0 })
+    const prefix = `reports/space/${id}/`
+    expect(await env.BUCKET.head(`${prefix}replay.json.gz`)).not.toBeNull()
+    expect(await env.BUCKET.head(`${prefix}auto_2.jpg`)).not.toBeNull()
+
+    const r = await call(new Request(`${BASE}/r/${id}/replay`))
+    expect(r.status).toBe(200)
+    expect(r.headers.get('content-type')).toBe('application/gzip')
+    expect(r.headers.get('cache-control')).toBe('private, no-store')
+    expect(new Uint8Array(await r.arrayBuffer())).toEqual(gz)
+
+    const a = await call(new Request(`${BASE}/r/${id}/auto/1`))
+    expect(a.status).toBe(200)
+    expect(a.headers.get('content-type')).toBe('image/jpeg')
+    expect((await call(new Request(`${BASE}/r/${id}/auto/3`))).status).toBe(404)
+  })
+
+  it('404s the replay route when there is none', async () => {
+    const { id } = (await (await call(ingestRequest(form(payload())))).json()) as { id: string }
+    expect((await call(new Request(`${BASE}/r/${id}/replay`))).status).toBe(404)
+  })
+
+  it('rejects a replay over the compressed cap with 413', async () => {
+    const big = new Uint8Array(5_000_001)
+    big[0] = 0x1f
+    big[1] = 0x8b
+    const res = await call(ingestRequest(await v2Form(big)))
+    expect(res.status).toBe(413)
+    expect(await res.text()).toContain('replay too large')
+  })
+
+  it('rejects a gzip bomb (decompresses over the cap) with 413', async () => {
+    const bomb = await gzip(new Uint8Array(41_000_000))
+    expect(bomb.byteLength).toBeLessThan(200_000)
+    const res = await call(ingestRequest(await v2Form(bomb)))
+    expect(res.status).toBe(413)
+    expect(await res.text()).toContain('decompressed')
+  })
+
+  it('rejects a non-gzip replay with 400', async () => {
+    const res = await call(ingestRequest(await v2Form(new TextEncoder().encode('{"events":[]}'))))
+    expect(res.status).toBe(400)
+    expect(await res.text()).toContain('gzip')
+  })
+
+  it('rejects an oversized auto snapshot with 413 and a 4th auto part with 400', async () => {
+    expect((await call(ingestRequest(await v2Form(null, { auto_0: { bytes: jpegN(400_001), type: 'image/jpeg' } })))).status).toBe(413)
+    const f = await v2Form(null)
+    expect((await call(ingestRequest(f))).status).toBe(201)
+    const g = await v2Form(null)
+    g.append('auto_1', new File([JPEG], 'x.jpg', { type: 'image/jpeg' }))
+    expect((await call(ingestRequest(g))).status).toBe(400)
+  })
+
+  it('drops the replay but keeps the report after 10 replay uploads per hour', async () => {
+    const gz = await gzip(REPLAY_JSON)
+    const ip = { 'cf-connecting-ip': '7.7.7.7' }
+    for (let i = 0; i < 10; i++) {
+      expect((await call(ingestRequest(await v2Form(gz), ip))).status).toBe(201)
+    }
+    const res = await call(ingestRequest(await v2Form(gz), ip))
+    expect(res.status).toBe(201)
+    const { id } = (await res.json()) as { id: string }
+    expect(await row(id)).toMatchObject({ has_replay: 0, replay_dropped: 1, auto_snaps: 3 })
+    expect(await env.BUCKET.head(`reports/space/${id}/replay.json.gz`)).toBeNull()
+    const stored = JSON.parse(await (await env.BUCKET.get(`reports/space/${id}/report.json`))!.text())
+    expect(stored.replay).toBeUndefined()
+    expect(stored.replayError).toContain('hourly')
+  })
+})
+
+describe('v0.2 report page', () => {
+  it('sets the CSP, loads the vendored player, renders auto snaps, escapes labels', async () => {
+    const p = v2({ autoSnaps: [{ part: 'auto_0', t: Date.now(), reason: 'toast', label: '<script>x</script>' }] })
+    const { id } = (await (await call(ingestRequest(await v2Form(await gzip(REPLAY_JSON), {}, p)))).json()) as { id: string }
+    const page = await call(new Request(`${BASE}/r/${id}`))
+    const csp = page.headers.get('content-security-policy')!
+    expect(csp).toContain("default-src 'none'")
+    expect(csp).toMatch(/script-src 'nonce-[0-9a-f]+' 'self'/)
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'")
+    expect(csp).toContain("connect-src 'self'")
+    expect(csp).toContain("img-src 'self' data: blob: https:")
+    expect(csp).toContain("font-src 'self' data: https:")
+    const html = await page.text()
+    expect(html).toContain(`<script src="/assets/rrweb-player.${PLAYER}.js" nonce=`)
+    expect(html).toContain(`/assets/rrweb-player.${PLAYER}.css`)
+    expect(html).toContain('id="replay-box"')
+    expect(html).toContain('Captured automatically')
+    expect(html).toContain(`/r/${id}/auto/0`)
+    expect(html).not.toContain('<script>x</script>')
+    expect(html).toContain('&lt;script&gt;x&lt;/script&gt;')
+  })
+
+  it('shows replayError when there is no replay', async () => {
+    const p = v2({ replay: undefined, replayError: 'recording excluded by tester' })
+    const { id } = (await (await call(ingestRequest(await v2Form(null, {}, p)))).json()) as { id: string }
+    const html = await (await call(new Request(`${BASE}/r/${id}`))).text()
+    expect(html).toContain('No recording: recording excluded by tester')
+    expect(html).not.toContain('rrweb-player')
+  })
+
+  it('serves the vendored player assets', async () => {
+    const js = await call(new Request(`${BASE}/assets/rrweb-player.${PLAYER}.js`))
+    expect(js.status).toBe(200)
+    expect(js.headers.get('content-type') ?? '').toMatch(/javascript/)
+    expect((await js.text()).length).toBeGreaterThan(100_000)
+    const css = await call(new Request(`${BASE}/assets/rrweb-player.${PLAYER}.css`))
+    expect(css.status).toBe(200)
+    expect(css.headers.get('content-type') ?? '').toContain('css')
+    expect((await call(new Request(`${BASE}/assets/other.js`))).status).toBe(404)
+  })
+})
+
+describe('v0.2 email', () => {
+  it('uses the newest auto snapshot as the hero and links the replay', async () => {
+    await call(ingestRequest(await v2Form(await gzip(REPLAY_JSON))))
+    const mail = resendCalls[0]!
+    expect(mail.html).toContain('cid:autosnap')
+    expect(mail.html).toContain('TypeError: boom') // newest by t is auto_2
+    expect(mail.html).toContain('cid:screenshot')
+    expect(mail.html).toContain('▶ Watch the last 2 minutes')
+    expect(mail.html).toMatch(/\/r\/[0-9a-f-]+#replay/)
+    const ids = mail.attachments!.map((a) => a.content_id).filter(Boolean)
+    expect(ids).toEqual(['autosnap', 'screenshot'])
+    expect(mail.attachments!.filter((a) => a.filename.startsWith('auto'))).toHaveLength(1)
+  })
+
+  it('falls back to the screenshot hero without auto snaps', async () => {
+    await call(ingestRequest(form(payload())))
+    expect(resendCalls[0]!.html).toContain('cid:screenshot')
+    expect(resendCalls[0]!.html).not.toContain('cid:autosnap')
+    expect(resendCalls[0]!.html).not.toContain('Watch the last')
+  })
+})

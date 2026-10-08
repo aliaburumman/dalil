@@ -9,11 +9,54 @@ Plain fetch handler, no framework. Its own package — run everything from `work
 | Route | What |
 |---|---|
 | `OPTIONS /v1/reports` | CORS preflight, answered only for allowed origins |
-| `POST /v1/reports` | multipart ingest: part `report` (JSON ≤ 1 MB) + `image_0..image_5` (jpeg/png/webp) |
+| `POST /v1/reports` | multipart ingest, parts below (payload v1 and v2 accepted) |
 | `GET /r/:id` | triage page (behind Cloudflare Access) |
 | `GET /r/:id/img/:part` | image streamed from R2 |
+| `GET /r/:id/auto/:n` | auto snapshot `n` (0-2) |
+| `GET /r/:id/replay` | the stored gzip, `application/gzip`, `private, no-store` |
+| `GET /assets/rrweb-player.<ver>.js|css` | vendored player (static assets) |
 | `POST /r/:id/status` | `status=new|seen|fixed|wontfix` |
 | cron (daily 03:17 UTC) | delete D1 rows > 90 days, prune rate-limit hits, retry `failed` emails (≤ 7 days old) |
+
+## Ingest parts (payload v2)
+
+Limits live in `src/limits.ts`, a copy of `../src/core/limits.ts` (change both together).
+
+| Part | Max | Per-part cap |
+|---|---|---|
+| `report` (JSON, `v` is 1 or 2) | 1 | 1 MB |
+| `image_0..image_5` (jpeg/png/webp) | 6 | 2 MB each |
+| `auto_0..auto_2` (jpeg/png/webp, failure snapshots) | 3 | 400 KB each |
+| `replay` (gzip of rrweb events) | 1 | 5 MB gzip, 40 MB decompressed |
+| whole body | | 8 MB |
+
+The replay must start with the gzip magic bytes (`1f 8b`). The decompressed size is
+checked by streaming it through `DecompressionStream` and counting bytes (never stored,
+never recompressed), so a gzip bomb gets `413`. A non-gzip replay gets `400`. Replay JSON
+is scrubbed by the client, not here. Stored as `reports/{project}/{id}/replay.json.gz` and
+`auto_N.jpg`. At most 10 reports with a replay per ip+project per hour (D1 table
+`replay_hits`); over that the report is accepted, the replay is dropped and
+`replay_dropped = 1`.
+
+## Replay player and static assets
+
+`rrweb-player` is pinned to an exact version in `package.json` and vendored: `npm run vendor:player`
+copies its UMD build and CSS to `public/assets/rrweb-player.<ver>.js|css` and writes
+`src/player-version.ts`. `wrangler.jsonc` has `"assets": {"directory": "./public", "binding": "ASSETS"}`;
+the Worker serves `/assets/rrweb-player.*` through `env.ASSETS` (assets are not part of the
+Worker bundle, so the script stays about 43 KB). Nothing loads from a CDN. The report page CSP is:
+`default-src 'none'; script-src 'nonce-…' 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob: https:; font-src 'self' data: https:`.
+The page fetches `/r/:id/replay`, decompresses with `DecompressionStream`, and mounts the player;
+`dalil` custom events (type 5) become "Jump to" buttons (`player.goto(t - first - 1500)`).
+
+## Migrations
+
+New in v0.2 (`migrations/0002_replay.sql`: `has_replay`, `auto_snaps`, `replay_dropped`, `replay_hits`).
+Apply before deploying the new Worker:
+
+```sh
+npx wrangler d1 migrations apply dalil --remote
+```
 
 ## Client contract
 
@@ -34,7 +77,7 @@ project, point the widget at `https://dalil.thecourtspace.com/v1/reports?project
 then only that project's origins pass. Either way, the POST itself is checked per project.
 
 Responses: `201 {id, ref, url}` (e.g. `ref: "SPACE-142"`), `400` bad body/parts/version,
-`401` bad project/key, `403` origin, `413` > 8 MB body or > 1 MB report, `415` not
+`401` bad project/key, `403` origin, `413` > 8 MB body, > 1 MB report, oversize replay/auto part or gzip bomb, `415` not
 multipart, `429` rate limited, `500` storage failed (client should keep its pending copy).
 
 ## Rate limiting

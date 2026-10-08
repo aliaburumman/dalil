@@ -1,12 +1,15 @@
 // Dalil collector — Cloudflare Worker (D1 + R2 + Resend). See README.md and docs/design.md §3.
 import type { Env } from './env'
 import { handleIngest, handlePreflight } from './ingest'
-import { handleImage, handlePage, handleStatus } from './page'
+import { handleAuto, handleImage, handlePage, handleReplay, handleStatus } from './page'
 import { runScheduled } from './scheduled'
 import { json } from './util'
 
 const REPORT_PAGE = /^\/r\/([^/]+)$/
 const REPORT_IMG = /^\/r\/([^/]+)\/img\/([^/]+)$/
+const REPORT_AUTO = /^\/r\/([^/]+)\/auto\/([0-2])$/
+const REPORT_REPLAY = /^\/r\/([^/]+)\/replay$/
+const ASSET = /^\/assets\/rrweb-player\.[0-9A-Za-z.-]+\.(js|css)$/
 const REPORT_STATUS = /^\/r\/([^/]+)\/status$/
 
 export default {
@@ -21,6 +24,9 @@ export default {
       let m: RegExpMatchArray | null
       if (req.method === 'GET' && (m = pathname.match(REPORT_PAGE))) return await handlePage(env, m[1]!)
       if (req.method === 'GET' && (m = pathname.match(REPORT_IMG))) return await handleImage(env, m[1]!, m[2]!)
+      if (req.method === 'GET' && (m = pathname.match(REPORT_AUTO))) return await handleAuto(env, m[1]!, m[2]!)
+      if (req.method === 'GET' && (m = pathname.match(REPORT_REPLAY))) return await handleReplay(env, m[1]!)
+      if (req.method === 'GET' && ASSET.test(pathname)) return await env.ASSETS.fetch(req)
       if (req.method === 'POST' && (m = pathname.match(REPORT_STATUS))) return await handleStatus(req, env, m[1]!)
       return new Response('Not found', { status: 404 })
     } catch (err) {
