@@ -66,6 +66,18 @@ describe('submit', () => {
     expect(await flushPending()).toBeNull() // gone
   })
 
+  it('throws save_failed (not queued) when IndexedDB is unavailable', async () => {
+    mode = 'down'
+    vi.stubGlobal('indexedDB', undefined)
+    try {
+      const err = await submit(payload, []).catch((e) => e)
+      expect(err).toBeInstanceOf(DalilSubmitError)
+      expect(err.code).toBe('save_failed')
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it('drops pending reports older than 24 h', async () => {
     mode = 'down'
     await submit(payload, []).catch(() => {})

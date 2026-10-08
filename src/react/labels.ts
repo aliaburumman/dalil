@@ -36,6 +36,7 @@ export interface Labels {
   sentAs: string
   queued: string
   rejected: string
+  saveFailed: string
 }
 
 export const defaultLabels: Labels = {
@@ -72,6 +73,7 @@ export const defaultLabels: Labels = {
   sentAs: 'Sent as {ref}',
   queued: 'Saved, will send when back online',
   rejected: "The report couldn't be sent. Please try again.",
+  saveFailed: "You appear to be offline and the report couldn't be saved. Please try again.",
 }
 
 export function fmt(template: string, vars: Record<string, string | number>): string {

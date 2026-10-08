@@ -216,6 +216,19 @@ describe('DalilProvider', () => {
     expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
+  it("'save_failed' keeps the form and shows the save-failed error", async () => {
+    core.submit.mockRejectedValue(new core.DalilSubmitError('save_failed', 'no idb'))
+    render(<DalilProvider {...base} enabled />)
+    await openDialog()
+    fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'kept text' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/couldn't be saved/)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect((screen.getByLabelText('What went wrong?') as HTMLTextAreaElement).value).toBe('kept text')
+    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('rtl sets dir on the dialog root and labels can be overridden', async () => {
     render(
       <DalilProvider {...base} enabled dir="rtl" labels={{ button: 'أبلغ عن مشكلة', send: 'إرسال' }} />,

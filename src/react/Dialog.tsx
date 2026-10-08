@@ -165,7 +165,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, onC
         onClose()
         return
       }
-      setError(labels.rejected)
+      setError(err instanceof DalilSubmitError && err.code === 'save_failed' ? labels.saveFailed : labels.rejected)
       setSending(false)
     }
   }

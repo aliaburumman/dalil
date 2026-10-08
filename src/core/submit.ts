@@ -7,7 +7,7 @@ export interface SubmitImage {
   blob: Blob
 }
 
-export type SubmitErrorCode = 'queued' | 'rejected' | 'not_initialized'
+export type SubmitErrorCode = 'queued' | 'rejected' | 'not_initialized' | 'save_failed'
 
 /** Thrown by submit(). `queued` = network failed, report kept in IndexedDB for flushPending(). */
 export class DalilSubmitError extends Error {
@@ -132,7 +132,8 @@ const deletePending = () => tx('readwrite', (s) => s.delete(KEY))
 /**
  * POSTs the report as multipart ('report' JSON + image parts) with the
  * original, unpatched fetch. Network failure → the report is stored (one slot)
- * and a DalilSubmitError {code:'queued'} is thrown. Non-2xx → {code:'rejected'}.
+ * and a DalilSubmitError {code:'queued'} is thrown. If it cannot be stored either (IndexedDB failing or unavailable)
+ * → {code:'save_failed'}. Non-2xx → {code:'rejected'}.
  */
 export async function submit(payload: ReportPayload, images: SubmitImage[] = []): Promise<SubmitResult> {
   const cfg = getConfig()
@@ -144,7 +145,7 @@ export async function submit(payload: ReportPayload, images: SubmitImage[] = [])
     try {
       await putPending({ payload, images, endpoint: cfg.endpoint, project: cfg.project, publicKey: cfg.publicKey, createdAt: Date.now() })
     } catch {
-      throw new DalilSubmitError('queued', 'Network error; the report could not be saved for retry')
+      throw new DalilSubmitError('save_failed', 'Network error; the report could not be saved for retry')
     }
     throw new DalilSubmitError('queued', `Network error; report saved and will be retried (${(err as Error)?.message ?? err})`)
   }
