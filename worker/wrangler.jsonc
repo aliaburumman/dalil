@@ -21,8 +21,8 @@
     {
       "binding": "DB",
       "database_name": "dalil",
-      // Placeholder: replace with the id printed by `wrangler d1 create dalil`.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      // Created 2026-10-08.
+      "database_id": "ec023454-acdd-459f-a536-926c31f1a2ac",
       "migrations_dir": "migrations"
     }
   ],
