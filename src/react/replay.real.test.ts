@@ -13,7 +13,7 @@ async function gunzip(blob: Blob): Promise<string> {
   })
   const ds = new DecompressionStream('gzip')
   const w = ds.writable.getWriter()
-  void w.write(buf).then(() => w.close())
+  void w.write(buf as Uint8Array<ArrayBuffer>).then(() => w.close())
   const reader = ds.readable.getReader()
   const parts: Uint8Array[] = []
   for (;;) {
@@ -21,7 +21,13 @@ async function gunzip(blob: Blob): Promise<string> {
     if (done) break
     parts.push(value)
   }
-  return new TextDecoder().decode(Buffer.concat(parts))
+  const all = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+  let o = 0
+  for (const p of parts) {
+    all.set(p, o)
+    o += p.length
+  }
+  return new TextDecoder().decode(all)
 }
 
 let handle: ReplayHandle | undefined
