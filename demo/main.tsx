@@ -1,0 +1,72 @@
+import { StrictMode, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { DalilProvider, useDalil } from '../src/react'
+
+const post = (path: string, body: unknown) =>
+  fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer demo.jwt.token' },
+    body: JSON.stringify({ query: body }),
+  })
+
+function Demo() {
+  const { open } = useDalil()
+  const [rows, setRows] = useState(0)
+  const [rtl, setRtl] = useState(false)
+  return (
+    <main dir={rtl ? 'rtl' : 'ltr'}>
+      <h1>dalil demo</h1>
+      <p>Trigger a failure, then press the floating button or Ctrl/⌘+Shift+B.</p>
+      <div className="row">
+        <button onClick={() => post('/api/server-error', { playerGuid: 'abc', amount: 50 })}>500 fetch</button>
+        <button onClick={() => post('/api/validation', { amount: -1, password: 'hunter2' })}>400 validation</button>
+        <button onClick={() => post('/api/app-error', { playerGuid: 'missing' })}>200 success:false</button>
+        <button
+          onClick={() => {
+            throw new Error('Cannot read properties of undefined (reading "name")')
+          }}
+        >
+          Throw JS error
+        </button>
+        <button onClick={() => setRows(rows ? 0 : 500)}>{rows ? 'Hide' : 'Show'} big table</button>
+        <button onClick={() => setRtl((v) => !v)}>Toggle RTL</button>
+        <button onClick={open}>Open from host menu</button>
+      </div>
+      <p className="secret" data-dalil-mask>
+        Masked area: card 4111 1111 1111 1111 (should be a grey box in the screenshot)
+      </p>
+      {rows > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Player</th><th>Plan</th><th>Balance</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: rows }, (_, i) => (
+              <tr key={i}>
+                <td>{i + 1}</td><td>Player {i + 1}</td><td>Monthly</td><td>{(i * 7) % 120} JOD</td>
+                <td>{i % 3 ? 'Active' : 'Expired'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <DalilProvider
+        project="demo"
+        publicKey="pk_demo"
+        endpoint="/v1/reports"
+        apiOrigins={[location.origin]}
+        enabled
+        dir={rtl ? 'rtl' : 'ltr'}
+        getContext={() => ({ userId: 'u-1', userName: 'Demo Owner', role: 'Owner', tenant: 'Demo Academy' })}
+      />
+    </main>
+  )
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Demo />
+  </StrictMode>,
+)
