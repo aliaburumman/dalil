@@ -1,6 +1,7 @@
 import type { Labels } from './labels'
+import { rootAttrs, type Appearance } from './styles'
 
-interface Props {
+interface Props extends Appearance {
   labels: Labels
   dir: 'ltr' | 'rtl'
   position: 'bottom-end' | 'bottom-start'
@@ -8,9 +9,9 @@ interface Props {
   onPreload: () => void
 }
 
-export function Button({ labels, dir, position, onOpen, onPreload }: Props) {
+export function Button({ labels, dir, position, onOpen, onPreload, ...appearance }: Props) {
   return (
-    <div className="dalil-root" data-dalil-ignore="" dir={dir}>
+    <div className="dalil-root" data-dalil-ignore="" dir={dir} {...rootAttrs(appearance)}>
       <button
         type="button"
         className="dalil-fab"

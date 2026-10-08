@@ -239,4 +239,30 @@ describe('DalilProvider', () => {
     expect(dialog.closest('[data-dalil-ignore]')?.getAttribute('dir')).toBe('rtl')
     expect(screen.getByRole('button', { name: 'إرسال' })).toBeTruthy()
   })
+
+  it("theme='light' sets data-theme on the dialog root", async () => {
+    render(<DalilProvider {...base} enabled theme="light" />)
+    const dialog = await openDialog()
+    expect(dialog.closest('.dalil-root')?.getAttribute('data-theme')).toBe('light')
+  })
+
+  it("theme defaults to 'system' with no data-theme", async () => {
+    render(<DalilProvider {...base} enabled />)
+    const dialog = await openDialog()
+    expect(dialog.closest('.dalil-root')?.hasAttribute('data-theme')).toBe(false)
+  })
+
+  it('accent and accentForeground set the CSS vars on the root', async () => {
+    render(<DalilProvider {...base} enabled accent="rgb(1, 2, 3)" accentForeground="rgb(4, 5, 6)" />)
+    const root = screen.getByRole('button', { name: 'Report a bug' }).closest('.dalil-root') as HTMLElement
+    expect(root.style.getPropertyValue('--dalil-accent')).toBe('rgb(1, 2, 3)')
+    expect(root.style.getPropertyValue('--dalil-accent-fg')).toBe('rgb(4, 5, 6)')
+  })
+
+  it('uses the singular step label when there is one step', async () => {
+    render(<DalilProvider {...base} enabled />)
+    await openDialog()
+    expect(screen.getByText('1 step')).toBeTruthy()
+    expect(screen.queryByText('1 steps')).toBeNull()
+  })
 })

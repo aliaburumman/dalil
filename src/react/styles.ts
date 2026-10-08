@@ -3,6 +3,8 @@
 const CSS = `
 .dalil-root{--dalil-bg:#fff;--dalil-fg:#111827;--dalil-muted:#6b7280;--dalil-border:#d1d5db;--dalil-accent:#2563eb;--dalil-accent-fg:#fff;--dalil-danger:#b91c1c;--dalil-surface:#f3f4f6;--dalil-backdrop:rgba(0,0,0,.45);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans Arabic",sans-serif;color:var(--dalil-fg)}
 @media (prefers-color-scheme:dark){.dalil-root{--dalil-bg:#1f2937;--dalil-fg:#f9fafb;--dalil-muted:#9ca3af;--dalil-border:#4b5563;--dalil-accent:#3b82f6;--dalil-surface:#111827;--dalil-danger:#f87171;--dalil-backdrop:rgba(0,0,0,.6)}}
+.dalil-root[data-theme=light]{--dalil-bg:#fff;--dalil-fg:#111827;--dalil-muted:#6b7280;--dalil-border:#d1d5db;--dalil-accent:#2563eb;--dalil-surface:#f3f4f6;--dalil-danger:#b91c1c;--dalil-backdrop:rgba(0,0,0,.45);color-scheme:light}
+.dalil-root[data-theme=dark]{--dalil-bg:#1f2937;--dalil-fg:#f9fafb;--dalil-muted:#9ca3af;--dalil-border:#4b5563;--dalil-accent:#3b82f6;--dalil-surface:#111827;--dalil-danger:#f87171;--dalil-backdrop:rgba(0,0,0,.6);color-scheme:dark}
 .dalil-root *,.dalil-root *::before,.dalil-root *::after{box-sizing:border-box}
 .dalil-fab{position:fixed;inset-block-end:16px;inset-inline-end:16px;z-index:2147483000;display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border:0;border-radius:999px;background:var(--dalil-accent);color:var(--dalil-accent-fg);font:inherit;font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25);opacity:.85}
 .dalil-fab:hover,.dalil-fab:focus-visible{opacity:1}
@@ -39,6 +41,25 @@ const CSS = `
 .dalil-toast{position:fixed;inset-block-end:64px;inset-inline-end:16px;z-index:2147483002;background:var(--dalil-fg);color:var(--dalil-bg);padding:10px 14px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:calc(100vw - 32px)}
 .dalil-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 `
+
+export type DalilTheme = 'light' | 'dark' | 'system'
+
+export interface Appearance {
+  theme?: DalilTheme
+  accent?: string
+  accentForeground?: string
+}
+
+/** Attributes for every `.dalil-root`: forced theme and brand colour overrides. */
+export function rootAttrs(a: Appearance): { 'data-theme'?: 'light' | 'dark'; style?: Record<string, string> } {
+  const style: Record<string, string> = {}
+  if (a.accent) style['--dalil-accent'] = a.accent
+  if (a.accentForeground) style['--dalil-accent-fg'] = a.accentForeground
+  return {
+    ...(a.theme === 'light' || a.theme === 'dark' ? { 'data-theme': a.theme } : {}),
+    ...(Object.keys(style).length ? { style } : {}),
+  }
+}
 
 const STYLE_ID = 'dalil-styles'
 

@@ -4,7 +4,7 @@ import { init, onOpen, open as coreOpen, snapshot, type DalilConfig } from '../c
 import { Button } from './Button'
 import type { DialogProps, DialogSnapshot } from './Dialog'
 import { defaultLabels, type Labels } from './labels'
-import { ensureStyles } from './styles'
+import { ensureStyles, type DalilTheme } from './styles'
 import { Toast } from './Toast'
 
 export interface DalilProviderProps extends DalilConfig {
@@ -16,6 +16,12 @@ export interface DalilProviderProps extends DalilConfig {
   /** e.g. "mod+shift+b" (mod = Ctrl or ⌘). `false` disables it. Default "mod+shift+b". */
   shortcut?: string | false
   hideButton?: boolean
+  /** 'system' (default) follows prefers-color-scheme; 'light'/'dark' force it (use your app's own theme). */
+  theme?: DalilTheme
+  /** Brand colour for the button and primary actions: any CSS colour, e.g. 'var(--primary)'. Pass with accentForeground. */
+  accent?: string
+  /** Text colour on the accent. Defaults to white; pass it whenever you pass accent. */
+  accentForeground?: string
   children?: ReactNode
 }
 
@@ -61,10 +67,14 @@ export function DalilProvider(props: DalilProviderProps) {
     position = 'bottom-end',
     shortcut = 'mod+shift+b',
     hideButton = false,
+    theme = 'system',
+    accent,
+    accentForeground,
     children,
     ...config
   } = props
 
+  const appearance = { theme, accent, accentForeground }
   const [state, setState] = useState<State>({ phase: 'idle' })
   const [toast, setToast] = useState<string | null>(null)
   const phaseRef = useRef(state.phase)
@@ -141,6 +151,7 @@ export function DalilProvider(props: DalilProviderProps) {
           <Button
             labels={labels}
             dir={dir}
+            {...appearance}
             position={position}
             onOpen={() => void openWidget()}
             onPreload={() => void preload()}
@@ -151,6 +162,7 @@ export function DalilProvider(props: DalilProviderProps) {
             project={config.project}
             labels={labels}
             dir={dir}
+            {...appearance}
             getContext={getContext}
             snap={state.snap}
             screenshot={state.screenshot}
@@ -158,7 +170,7 @@ export function DalilProvider(props: DalilProviderProps) {
             onToast={setToast}
           />
         )}
-        {toast && <Toast message={toast} dir={dir} onDone={clearToast} />}
+        {toast && <Toast message={toast} dir={dir} {...appearance} onDone={clearToast} />}
       </>
     )
 

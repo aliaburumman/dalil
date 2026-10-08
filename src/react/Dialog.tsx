@@ -15,6 +15,7 @@ import {
 import { Annotator, type AnnotatorHandle } from './Annotator'
 import { ImagePicker, type PickedImage } from './ImagePicker'
 import { fmt, type Labels } from './labels'
+import { rootAttrs, type Appearance } from './styles'
 
 export interface DialogSnapshot {
   events: DalilEvent[]
@@ -22,7 +23,7 @@ export interface DialogSnapshot {
   curls: Record<string, string>
 }
 
-export interface DialogProps {
+export interface DialogProps extends Appearance {
   project: string
   labels: Labels
   dir: 'ltr' | 'rtl'
@@ -63,7 +64,7 @@ function buildEnv(): Environment {
 const FOCUSABLE =
   'button:not([disabled]),[href],input:not([disabled]),select,textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),summary'
 
-export function Dialog({ project, labels, dir, getContext, snap, screenshot, onClose, onToast }: DialogProps) {
+export function Dialog({ project, labels, dir, getContext, snap, screenshot, onClose, onToast, theme, accent, accentForeground }: DialogProps) {
   const ids = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const firstRef = useRef<HTMLTextAreaElement>(null)
@@ -182,6 +183,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, onC
       className="dalil-root dalil-backdrop"
       data-dalil-ignore=""
       dir={dir}
+      {...rootAttrs({ theme, accent, accentForeground })}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget && !sending) onClose()
       }}
@@ -260,8 +262,8 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, onC
             <li>
               {labels.likely}: {snap.verdict.headline}
             </li>
-            <li>{fmt(labels.steps, { n: counts.steps })}</li>
-            <li>{fmt(labels.requests, { n: counts.requests, m: counts.failed })}</li>
+            <li>{fmt(counts.steps === 1 ? (labels.stepsOne ?? labels.steps) : labels.steps, { n: counts.steps })}</li>
+            <li>{fmt(counts.requests === 1 ? (labels.requestsOne ?? labels.requests) : labels.requests, { n: counts.requests, m: counts.failed })}</li>
             <li>
               {labels.contextFields}:{' '}
               {contextEntries.length

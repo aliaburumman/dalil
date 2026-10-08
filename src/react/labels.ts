@@ -25,8 +25,12 @@ export interface Labels {
   likely: string
   /** {n} = number of steps */
   steps: string
+  /** Used when n === 1. Optional so existing hosts compile. */
+  stepsOne?: string
   /** {n} = requests, {m} = failed */
   requests: string
+  /** Used when n === 1. {n} = 1, {m} = failed */
+  requestsOne?: string
   contextFields: string
   noContext: string
   cancel: string
@@ -64,7 +68,9 @@ export const defaultLabels: Labels = {
   whatWillBeSent: 'What will be sent',
   likely: 'Likely',
   steps: '{n} steps',
+  stepsOne: '{n} step',
   requests: '{n} requests ({m} failed)',
+  requestsOne: '{n} request ({m} failed)',
   contextFields: 'Context',
   noContext: 'None',
   cancel: 'Cancel',

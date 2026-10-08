@@ -27,9 +27,14 @@ import { DalilProvider } from 'dalil/react'
   endpoint="https://dalil.example.com/v1/reports"
   apiOrigins={['https://api.example.com']}  // only these get X-Request-Id
   enabled={isLoggedIn}
+  theme="light"                                 // 'light' | 'dark' | 'system' (default: follows the OS)
+  accent="var(--primary)"                       // any CSS colour; default blue
+  accentForeground="var(--primary-foreground)"  // pass with accent; default white
   getContext={() => ({ userId, userName, role, tenant })}
 />
 ```
+
+`theme` forces light or dark so the dialog matches your app's own switch rather than the OS. `accent` / `accentForeground` set the brand colour (pass both). Plural labels: `labels={{ steps: '{n} steps', stepsOne: '{n} step', requests: '{n} requests ({m} failed)', requestsOne: '{n} request ({m} failed)' }}`.
 
 Open it with the floating button, **Ctrl/⌘ + Shift + B**, or `useDalil().open()` from your own menu.
 
