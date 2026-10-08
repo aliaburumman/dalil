@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetForTests, init, snapshot } from '../core'
-import { __resetAutoSnapsForTests, fitUnder, getAutoSnaps, startAutoSnap } from './autosnap'
+import { DEFAULT_TOAST_SELECTORS, __resetAutoSnapsForTests, fitUnder, getAutoSnaps, startAutoSnap } from './autosnap'
 
 const IMG = 'data:image/jpeg;base64,AAAA'
 let capture: ReturnType<typeof vi.fn>
@@ -131,5 +131,81 @@ describe('auto-snapshots', () => {
     const p = fitUnder(big, 400_000)
     await vi.advanceTimersByTimeAsync(2100)
     expect(await p).toBeNull() // jsdom cannot decode: dropped, never oversize
+  })
+
+  it('exports the default selectors', () => {
+    expect(DEFAULT_TOAST_SELECTORS).toContain('.toast-error')
+    expect(DEFAULT_TOAST_SELECTORS).toContain('.dalil-error')
+  })
+
+  it('catches ngx-toastr error toasts inside #toast-container', async () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div id="toast-container"><div class="ngx-toastr toast-error"><div class="toast-message">Failed</div></div></div>',
+    )
+    await vi.advanceTimersByTimeAsync(400)
+    expect(capture).toHaveBeenCalledTimes(1)
+    expect(getAutoSnaps()[0]).toMatchObject({ reason: 'toast', label: 'Error toast: Failed' })
+  })
+
+  it('ignores ngx-toastr success toasts', async () => {
+    document.body.insertAdjacentHTML('beforeend', '<div id="toast-container"><div class="ngx-toastr toast-success">Saved</div></div>')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(capture).not.toHaveBeenCalled()
+  })
+
+  it('catches react-toastify error toasts', async () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div class="Toastify"><div class="Toastify__toast Toastify__toast--error">Could not save</div></div>',
+    )
+    await vi.advanceTimersByTimeAsync(400)
+    expect(getAutoSnaps()[0]).toMatchObject({ label: 'Error toast: Could not save' })
+  })
+
+  it('catches the dalil-error class used with Angular Material snack bars', async () => {
+    document.body.insertAdjacentHTML('beforeend', '<div class="mat-mdc-snack-bar-container dalil-error">Nope</div>')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(getAutoSnaps()[0]).toMatchObject({ label: 'Error toast: Nope' })
+  })
+
+  it('catches a toast whose error class is added later', async () => {
+    document.body.insertAdjacentHTML('beforeend', '<div id="t" class="ngx-toastr">Working</div>')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(capture).not.toHaveBeenCalled()
+    document.getElementById('t')!.classList.add('toast-error')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(capture).toHaveBeenCalledTimes(1)
+  })
+
+  it('dedupes the same text within 10 s', async () => {
+    document.body.insertAdjacentHTML('beforeend', '<div class="toast-error">Same</div>')
+    await vi.advanceTimersByTimeAsync(5000)
+    document.body.insertAdjacentHTML('beforeend', '<div class="toast-error">Same</div>')
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(snapshot().events.filter((e) => e.type === 'log').length).toBe(1)
+  })
+
+  it('uses config.toastSelectors instead of the defaults', async () => {
+    stop()
+    __resetForTests()
+    init({ project: 'p', publicKey: 'k', endpoint: 'https://x.test/v1/reports', toastSelectors: ['.my-alert'] })
+    stop = startAutoSnap({ capture: capture as unknown as () => Promise<string> })
+    document.body.insertAdjacentHTML('beforeend', '<div class="toast-error">Default one</div>')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(capture).not.toHaveBeenCalled()
+    document.body.insertAdjacentHTML('beforeend', '<div class="my-alert">Custom one</div>')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(getAutoSnaps()[0]).toMatchObject({ label: 'Error toast: Custom one' })
+  })
+
+  it('survives an invalid custom selector', async () => {
+    stop()
+    __resetForTests()
+    init({ project: 'p', publicKey: 'k', endpoint: 'https://x.test/v1/reports', toastSelectors: ['[[bad'] })
+    stop = startAutoSnap({ capture: capture as unknown as () => Promise<string> })
+    document.body.insertAdjacentHTML('beforeend', '<div class="toast-error">x</div>')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(capture).not.toHaveBeenCalled()
   })
 })

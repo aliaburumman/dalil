@@ -1,6 +1,6 @@
 // Lazy chunk: automatic screenshots at failure moments (failed request, error event,
 // error toast). Memory-only ring of the last 3; nothing is persisted.
-import { LIMITS, log, onEvent, redactText, type AutoSnapReason, type DalilEvent } from '../core'
+import { LIMITS, getConfig, log, onEvent, redactText, type AutoSnapReason, type DalilEvent } from '../core'
 
 export interface AutoSnap {
   t: number
@@ -11,7 +11,13 @@ export interface AutoSnap {
   dataUrl: string
 }
 
-const TOAST_SELECTOR = '[data-sonner-toast][data-type="error"]'
+export const DEFAULT_TOAST_SELECTORS = [
+  '[data-sonner-toast][data-type="error"]',
+  '.toast-error',
+  '.Toastify__toast--error',
+  '.notistack-MuiContent-error',
+  '.dalil-error',
+]
 const TOAST_DELAY_MS = 300
 const EVENT_DELAY_MS = 700
 const THROTTLE_MS = 4000
@@ -112,6 +118,7 @@ export function startAutoSnap(opts: AutoSnapOptions = {}): () => void {
   let lastStart = -Infinity
   let timer: ReturnType<typeof setTimeout> | undefined
   let pending: Trigger | undefined
+  const toastSelector = (getConfig()?.toastSelectors?.length ? getConfig()!.toastSelectors! : DEFAULT_TOAST_SELECTORS).join(', ')
   const seenToasts = new Map<string, number>()
   let loggingToast = false
   let lastToastEventId: string | undefined
@@ -177,7 +184,7 @@ export function startAutoSnap(opts: AutoSnapOptions = {}): () => void {
   })
 
   const onToast = (el: Element) => {
-    const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+    const text = (((el as HTMLElement).innerText || el.textContent) ?? '').replace(/\s+/g, ' ').trim()
     const key = el.getAttribute('data-id') || text
     if (!key) return
     const t = now()
@@ -198,19 +205,31 @@ export function startAutoSnap(opts: AutoSnapOptions = {}): () => void {
 
   const scan = (node: Node) => {
     if (!(node instanceof Element)) return
-    if (node.matches(TOAST_SELECTOR)) onToast(node)
-    node.querySelectorAll(TOAST_SELECTOR).forEach(onToast)
+    try {
+      if (node.matches(toastSelector)) onToast(node)
+      node.querySelectorAll(toastSelector).forEach(onToast)
+    } catch {
+      /* an invalid host selector must never break the page */
+    }
+  }
+
+  const safeMatches = (el: Element) => {
+    try {
+      return el.matches(toastSelector)
+    } catch {
+      return false
+    }
   }
 
   const mo = new MutationObserver((records) => {
     for (const r of records) {
       if (r.type === 'childList') r.addedNodes.forEach(scan)
-      else if (r.type === 'attributes' && r.target instanceof Element && r.target.matches(TOAST_SELECTOR)) {
+      else if (r.type === 'attributes' && r.target instanceof Element && safeMatches(r.target)) {
         onToast(r.target)
       }
     }
   })
-  mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-type'] })
+  mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-type', 'class'] })
 
   return () => {
     stopped = true
