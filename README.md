@@ -61,6 +61,12 @@ Hidden: every input and textarea value, including passwords (masked as `***`); t
 
 **Not hidden:** visible page text (tables, names, amounts, a combobox's chosen label). That is the point: the developer sees what the tester saw. Put `data-dalil-mask` on anything sensitive that is shown as plain text, or set `replay={false}`. Pages that produce an unusually heavy recording (over about 30,000 events or 15 MB) stop recording and say so in the report.
 
+## Content-Security-Policy
+
+If the host page sends a `Content-Security-Policy`, add the collector origin to `connect-src`, for example `connect-src 'self' https://dalil.example.com`. Without it the browser blocks the upload; dalil saves the report on the device, retries it on the next page load, and logs a `[dalil] Could not reach the collector...` error in the console.
+
+To have images inlined in screenshots, also list the hosts serving those images in `connect-src`, because html-to-image fetches them.
+
 ## What is never sent
 
 - **Request values:** passwords, OTPs, tokens and card fields, and their header and query equivalents.
