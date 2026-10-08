@@ -27,6 +27,10 @@
     }
   ],
 
+  // Vendored rrweb-player (public/assets/rrweb-player.<ver>.js|css, see `npm run vendor:player`).
+  // Served by the Worker through env.ASSETS so the report page's CSP can stay 'self'.
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "dalil-reports" }],
 
   // Workers Rate Limiting only supports period 10 or 60 seconds, so "20 per hour" cannot

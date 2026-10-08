@@ -10,7 +10,8 @@
     "build": "wrangler deploy --dry-run --outdir dist",
     "deploy": "wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply dalil --local",
-    "migrate:remote": "wrangler d1 migrations apply dalil --remote"
+    "migrate:remote": "wrangler d1 migrations apply dalil --remote",
+    "vendor:player": "node scripts/vendor-player.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.23.0",
@@ -18,5 +19,8 @@
     "typescript": "~5.9.0",
     "vitest": "~4.1.0",
     "wrangler": "^4.40.0"
+  },
+  "dependencies": {
+    "rrweb-player": "2.1.7"
   }
 }

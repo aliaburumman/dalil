@@ -1,10 +1,12 @@
-// COPY of the payload contract from ../../src/core/types.ts (PAYLOAD_VERSION = 1).
+// COPY of the payload contract from ../../src/core/types.ts (PAYLOAD_VERSION = 2).
 // The worker is its own package and does not import from the client package, so
 // keep this file in sync by hand: when PAYLOAD_VERSION is bumped there, update the
 // types and the constant here, and make the collector accept the new shape.
 // Only the payload types are copied; DalilConfig is client-only and omitted.
+// The collector accepts v1 and v2 (SUPPORTED_VERSIONS).
 
-export const PAYLOAD_VERSION = 1
+export const PAYLOAD_VERSION = 2
+export const SUPPORTED_VERSIONS: readonly number[] = [1, 2]
 
 /** Every captured moment. `t` is epoch ms; `id` is unique within one page load. */
 export type DalilEvent =
@@ -136,7 +138,7 @@ export interface Environment {
 
 /** report.json — the multipart part named "report". Images go in parts image_0..image_5. */
 export interface ReportPayload {
-  v: typeof PAYLOAD_VERSION
+  v: 1 | 2
   project: string
   createdAt: number
   title: string // "What went wrong?" (required)
@@ -149,8 +151,35 @@ export interface ReportPayload {
   /** curl per failed request, keyed by event id */
   curls: Record<string, string>
   /** image part names in order; image_0 is the (annotated) screenshot when present */
-  images: { part: string; kind: 'screenshot' | 'attachment'; name: string }[]
+  images: { part: string; kind: 'screenshot' | 'attachment' | 'auto'; name: string }[]
   screenshotError?: string
+  /** v2: screens captured automatically at failure moments (parts auto_0..auto_2), oldest first */
+  autoSnaps?: AutoSnapMeta[]
+  /** v2: gzipped rrweb event JSON in part "replay" */
+  replay?: ReplayMeta
+  /** v2: why no replay was attached (unsupported, over cap, disabled, excluded by tester) */
+  replayError?: string
+}
+
+export type AutoSnapReason = 'toast' | 'request' | 'error'
+
+export interface AutoSnapMeta {
+  part: string // auto_0..auto_2
+  t: number
+  reason: AutoSnapReason
+  /** human label, e.g. "Error toast: Failed to save payment" or "POST /Payment/Create → 500" */
+  label: string
+  eventId?: string
+}
+
+export interface ReplayMeta {
+  part: 'replay'
+  durationMs: number
+  events: number
+  /** compressed bytes */
+  bytes: number
+  /** rrweb version that recorded it, for the player */
+  rrweb: string
 }
 
 /** Collector response to POST /v1/reports */
@@ -160,4 +189,3 @@ export interface SubmitResult {
   ref: string
   url: string
 }
-
