@@ -526,7 +526,8 @@ async function captureResponse(res: Response, clone: Response | null, ctx: ReqCt
       text = undefined
     }
   }
-  const json = text !== undefined ? parseJson(text) : undefined
+  const isJson = /[/+]json\b/i.test(res.headers.get('content-type') ?? '')
+  const json = text !== undefined && isJson ? parseJson(text) : undefined
   const status = res.type === 'opaque' || res.type === 'opaqueredirect' ? 0 : res.status
   if (res.type === 'opaque' || res.type === 'opaqueredirect') {
     record(ctx, 0, 'ok')
@@ -534,7 +535,11 @@ async function captureResponse(res: Response, clone: Response | null, ctx: ReqCt
   }
   const { outcome, appCode, hasFieldErrors } = judge(status, json)
   const responseBody =
-    text !== undefined ? redactJsonString(text, extraKeys(), MAX_BODY) : FAILED.has(outcome) ? '[not captured]' : undefined
+    text !== undefined && !isJson
+      ? truncate(redactText(text), MAX_BODY)
+      : text !== undefined
+        ? redactJsonString(text, extraKeys(), MAX_BODY)
+        : FAILED.has(outcome) ? '[not captured]' : undefined
   record(ctx, status, outcome, { responseBody, appCode, hasFieldErrors })
 }
 
@@ -542,7 +547,9 @@ function shouldClone(res: Response): boolean {
   try {
     if (res.bodyUsed || !res.body && res.status === 204) return false
     const ct = res.headers.get('content-type') ?? ''
-    if (!/[/+]json\b/i.test(ct)) return false
+    const isJson = /[/+]json\b/i.test(ct)
+    // Failure pages (e.g. a proxy's HTML 502) are worth keeping; never clone 2xx non-JSON.
+    if (!isJson && !(res.status >= 400 && /^text\//i.test(ct))) return false
     const len = res.headers.get('content-length')
     if (len !== null && len !== '' && !(Number(len) <= MAX_CLONE)) return false
     return true

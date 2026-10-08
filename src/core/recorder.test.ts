@@ -61,14 +61,26 @@ describe('fetch patch', () => {
   })
 
   it('skips cloning large or non-JSON bodies', async () => {
-    nextResponse = () => new Response('x', { status: 500, headers: { 'content-type': 'text/html' } })
+    nextResponse = () => new Response('x', { status: 200, headers: { 'content-type': 'text/html' } })
     await fetch(`${API}/a`)
     nextResponse = () => json({ success: false }, 200, { 'content-length': String(70_000) })
     await fetch(`${API}/b`)
     await tick()
     const [a, b] = requests()
-    expect(a!.responseBody).toBe('[not captured]')
+    expect(a!.responseBody).toBeUndefined() // 2xx non-JSON is never cloned
     expect(b!.outcome).toBe('ok') // body not read, so success:false cannot be seen
+  })
+
+  it('captures a redacted, truncated text/html body of a 502', async () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123def'
+    const html = `<html><body>Bad gateway token ${jwt} ${'x'.repeat(20_000)}</body></html>`
+    nextResponse = () => new Response(html, { status: 502, headers: { 'content-type': 'text/html; charset=utf-8' } })
+    await fetch(`${API}/proxy`)
+    await tick()
+    const body = requests()[0]!.responseBody!
+    expect(body).toContain('Bad gateway')
+    expect(body).not.toContain(jwt)
+    expect(body.length).toBeLessThan(10 * 1024 + 50)
   })
 
   it('adds X-Request-Id only for apiOrigins, preserving the headers form', async () => {
