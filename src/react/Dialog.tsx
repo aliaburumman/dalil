@@ -357,6 +357,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
             <li>
               {labels.likely}: {snap.verdict.headline}
             </li>
+            {snap.verdict.userSaw && <li>User saw: "{snap.verdict.userSaw}"</li>}
             <li>{fmt(counts.steps === 1 ? (labels.stepsOne ?? labels.steps) : labels.steps, { n: counts.steps })}</li>
             <li>{fmt(counts.requests === 1 ? (labels.requestsOne ?? labels.requests) : labels.requests, { n: counts.requests, m: counts.failed })}</li>
             {replayInfo && (

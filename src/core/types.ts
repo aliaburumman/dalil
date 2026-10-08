@@ -96,6 +96,8 @@ export interface LogEvent extends Base {
   message: string
   /** redacted JSON string, ≤5 KB */
   data?: string
+  /** 'toast' marks an on-screen error toast the user saw (evidence, not a failure) */
+  source?: 'toast'
 }
 
 export type VerdictKind = 'network' | 'backend' | 'permission' | 'validation' | 'frontend' | 'ux'
@@ -108,6 +110,8 @@ export interface Verdict {
   evidenceEventId?: string
   /** ids of other failures in the window, most recent first */
   alsoSeen: string[]
+  /** text of the most recent error toast in the window, when one was shown */
+  userSaw?: string
 }
 
 export type Severity = 'blocker' | 'annoying' | 'minor'

@@ -162,6 +162,7 @@ export async function handlePage(env: Env, id: string): Promise<Response> {
     `<div class="chips"><span class="chip k">${esc(kindLabel(row.verdict_kind))}</span><span class="chip">severity: ${esc(row.severity)}</span><span class="chip">status: ${esc(row.status)}</span><span class="chip">email: ${esc(row.email_status)}</span>${row.scrubbed ? '<span class="chip">scrubbed</span>' : ''}</div>`,
   )
   if (row.verdict_headline) h.push(`<p>Likely: <strong>${esc(row.verdict_headline)}</strong>${p?.verdict?.confidence ? ` <span class="meta">(${esc(p.verdict.confidence)} confidence)</span>` : ''}</p>`)
+  if (p?.verdict?.userSaw) h.push(`<p>User saw: "${esc(p.verdict.userSaw)}"</p>`)
   h.push(
     `<form class="status" method="post" action="/r/${esc(row.id)}/status"><label for="st">Status</label><select id="st" name="status">${STATUSES.map((s) => `<option value="${s}"${s === row.status ? ' selected' : ''}>${s}</option>`).join('')}</select><button type="submit">Update</button></form>`,
   )

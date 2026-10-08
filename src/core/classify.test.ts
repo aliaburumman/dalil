@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { classify } from './classify'
-import type { DalilEvent, RequestEvent } from './types'
+import type { DalilEvent, LogEvent, RequestEvent } from './types'
 
 const NOW = 1_000_000
 let n = 0
@@ -97,5 +97,41 @@ describe('classify (Space API fixtures)', () => {
     expect(classify([old, click], NOW).kind).toBe('ux')
     // falls back to the whole buffer when the window is empty
     expect(classify([old], NOW).kind).toBe('backend')
+  })
+})
+
+describe('classify with error toasts', () => {
+  const toast = (text: string, t = NOW - 1_000): LogEvent => ({ id: `t${++n}`, t, type: 'log', level: 'error', message: `Toast: ${text}`, source: 'toast' })
+
+  it('500 then toast → backend verdict, userSaw carries the toast', () => {
+    const v = classify([req({ status: 500, outcome: 'http_error', t: NOW - 5_000 }), toast('Failed to save payment')], NOW)
+    expect(v.kind).toBe('backend')
+    expect(v.headline).toBe('Backend error: 500 on POST /Payment/Create')
+    expect(v.userSaw).toBe('Failed to save payment')
+  })
+
+  it('toast only → ux medium with the toast in the headline', () => {
+    const v = classify([toast('Something went wrong')], NOW)
+    expect(v).toMatchObject({ kind: 'ux', confidence: 'medium', headline: 'User saw an error: "Something went wrong"', userSaw: 'Something went wrong' })
+  })
+
+  it('JS error then toast → frontend + userSaw', () => {
+    const err: DalilEvent = { id: 'e1', t: NOW - 3_000, type: 'error', source: 'window', message: 'TypeError: boom' }
+    const v = classify([err, toast('Oops')], NOW)
+    expect(v.kind).toBe('frontend')
+    expect(v.headline).toBe('Frontend error: TypeError: boom')
+    expect(v.userSaw).toBe('Oops')
+  })
+
+  it('refreshed 401 + toast → ux', () => {
+    const a = req({ status: 401, outcome: 'http_error', t: NOW - 6_000, durationMs: 100 })
+    const b = req({ status: 200, outcome: 'ok', t: NOW - 5_500 })
+    const v = classify([a, b, toast('Session expired')], NOW)
+    expect(v.kind).toBe('ux')
+    expect(v.userSaw).toBe('Session expired')
+  })
+
+  it('uses the most recent toast', () => {
+    expect(classify([toast('old', NOW - 5_000), toast('new', NOW - 1_000)], NOW).userSaw).toBe('new')
   })
 })

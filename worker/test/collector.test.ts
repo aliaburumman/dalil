@@ -428,6 +428,13 @@ describe('v0.2 email', () => {
     expect(mail.attachments!.filter((a) => a.filename.startsWith('auto'))).toHaveLength(1)
   })
 
+  it('renders the User saw line, escaped, when the verdict carries a toast', async () => {
+    const p = payload()
+    ;(p.verdict as { userSaw?: string }).userSaw = 'Failed <b>to</b> save'
+    await call(ingestRequest(form(p)))
+    expect(resendCalls[0]!.html).toContain('User saw: "Failed &lt;b&gt;to&lt;/b&gt; save"')
+  })
+
   it('falls back to the screenshot hero without auto snaps', async () => {
     await call(ingestRequest(form(payload())))
     expect(resendCalls[0]!.html).toContain('cid:screenshot')

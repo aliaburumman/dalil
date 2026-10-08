@@ -52,6 +52,7 @@ export function buildHtml(ref: string, row: ReportRow, p: ReportPayload, link: s
   parts.push(
     `<p style="margin:0 0 12px"><strong>Likely: ${esc(kindLabel(p.verdict?.kind))}</strong> — ${esc(p.verdict?.headline)} <span style="color:#71717a">(${esc(p.verdict?.confidence)} confidence) · severity ${esc(p.severity)}</span></p>`,
   )
+  if (p.verdict?.userSaw) parts.push(`<p style="margin:0 0 12px;color:#52525b">User saw: "${esc(p.verdict.userSaw)}"</p>`)
   parts.push(
     `<table style="font-size:13px;margin-bottom:12px"><tr><td style="color:#71717a;padding-right:8px">Who</td><td>${esc(who)}</td></tr><tr><td style="color:#71717a;padding-right:8px">Where</td><td>${esc(where)}</td></tr><tr><td style="color:#71717a;padding-right:8px">When</td><td>${esc(formatTime(row.created_at))}</td></tr>${c.appVersion ? `<tr><td style="color:#71717a;padding-right:8px">Version</td><td>${esc(c.appVersion)}</td></tr>` : ''}</table>`,
   )

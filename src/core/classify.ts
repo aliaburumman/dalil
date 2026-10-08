@@ -1,4 +1,4 @@
-import type { DalilEvent, RequestEvent, Verdict, VerdictKind } from './types'
+import type { DalilEvent, LogEvent, RequestEvent, Verdict, VerdictKind } from './types'
 
 const WINDOW_MS = 90_000
 const REFRESH_MS = 5_000
@@ -33,7 +33,10 @@ function isRefreshed401(e: RequestEvent, all: DalilEvent[]): boolean {
   )
 }
 
+const isToast = (e: DalilEvent): boolean => e.type === 'log' && (e.source === 'toast' || e.message.startsWith('Toast: '))
+
 function isFailure(e: DalilEvent, all: DalilEvent[]): boolean {
+  if (isToast(e)) return false
   switch (e.type) {
     case 'request':
       if (!FAILED.has(e.outcome)) return false
@@ -90,7 +93,16 @@ export function classify(events: DalilEvent[], openedAt: number): Verdict {
     .sort((a, b) => b.at - a.at || b.i - a.i)
     .map((x) => x.e)
 
+  const toast = win.filter((e): e is LogEvent => isToast(e)).sort((a, b) => b.t - a.t)[0]
+  const userSaw = toast ? toast.message.replace(/^Toast: /, '') : undefined
+  const extra = userSaw !== undefined ? { userSaw } : {}
+
   const top = failures[0]
-  if (!top) return { kind: 'ux', headline: 'No technical failure seen', confidence: 'low', alsoSeen: [] }
-  return { ...verdictFor(top), evidenceEventId: top.id, alsoSeen: failures.slice(1).map((f) => f.id) }
+  if (!top) {
+    if (toast) {
+      return { kind: 'ux', headline: `User saw an error: "${clip(userSaw!)}"`, confidence: 'medium', evidenceEventId: toast.id, alsoSeen: [], ...extra }
+    }
+    return { kind: 'ux', headline: 'No technical failure seen', confidence: 'low', alsoSeen: [] }
+  }
+  return { ...verdictFor(top), evidenceEventId: top.id, alsoSeen: failures.slice(1).map((f) => f.id), ...extra }
 }

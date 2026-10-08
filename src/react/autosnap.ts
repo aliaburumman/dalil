@@ -189,7 +189,7 @@ export function startAutoSnap(opts: AutoSnapOptions = {}): () => void {
     lastToastEventId = undefined
     loggingToast = true
     try {
-      log(`Toast: ${clean}`, undefined, 'error')
+      log(`Toast: ${clean}`, undefined, 'error', 'toast')
     } finally {
       loggingToast = false
     }

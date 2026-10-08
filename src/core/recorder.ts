@@ -884,7 +884,7 @@ export function getConfig(): DalilConfig | null {
   return config
 }
 
-export function log(msg: string, data?: unknown, level: 'info' | 'warn' | 'error' = 'info'): void {
+export function log(msg: string, data?: unknown, level: 'info' | 'warn' | 'error' = 'info', source?: 'toast'): void {
   safe(() => {
     let d: string | undefined
     if (data !== undefined) {
@@ -896,7 +896,7 @@ export function log(msg: string, data?: unknown, level: 'info' | 'warn' | 'error
       }
       d = redactJsonString(s, extraKeys(), 5 * 1024)
     }
-    push({ type: 'log', level, message: truncate(redactText(String(msg)), 2000), data: d })
+    push({ type: 'log', level, message: truncate(redactText(String(msg)), 2000), data: d, ...(source ? { source } : {}) })
   })
 }
 

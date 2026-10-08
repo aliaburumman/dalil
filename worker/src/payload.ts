@@ -100,6 +100,7 @@ export interface LogEvent extends Base {
   message: string
   /** redacted JSON string, ≤5 KB */
   data?: string
+  source?: 'toast'
 }
 
 export type VerdictKind = 'network' | 'backend' | 'permission' | 'validation' | 'frontend' | 'ux'
@@ -112,6 +113,7 @@ export interface Verdict {
   evidenceEventId?: string
   /** ids of other failures in the window, most recent first */
   alsoSeen: string[]
+  userSaw?: string
 }
 
 export type Severity = 'blocker' | 'annoying' | 'minor'
