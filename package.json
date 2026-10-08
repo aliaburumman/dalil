@@ -1,7 +1,7 @@
 {
   "name": "dalil",
-  "version": "0.2.1",
-  "description": "Drop-in 'Report a bug' for React apps: steps, screenshots, FE/BE verdict and a safe curl, sent to your own collector.",
+  "version": "0.3.0",
+  "description": "Drop-in 'Report a bug' for any web app (React, Angular, Vue, plain HTML): steps, screenshots, FE/BE verdict and a safe curl, sent to your own collector.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -16,10 +16,14 @@
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js"
+    },
+    "./web": {
+      "types": "./dist/web/index.d.ts",
+      "import": "./dist/web/index.js"
     }
   },
   "scripts": {
-    "build": "tsup",
+    "build": "rm -rf dist && tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "demo": "vite demo"
@@ -38,7 +42,8 @@
   },
   "dependencies": {
     "@rrweb/record": "^2.1.7",
-    "html-to-image": "^1.11.13"
+    "html-to-image": "^1.11.13",
+    "preact": "^11.0.1"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",
@@ -67,5 +72,7 @@
     "qa",
     "curl",
     "screenshot"
-  ]
+  ],
+  "unpkg": "dist/dalil.global.js",
+  "jsdelivr": "dist/dalil.global.js"
 }
