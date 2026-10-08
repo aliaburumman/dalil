@@ -560,6 +560,21 @@ function shouldClone(res: Response): boolean {
   }
 }
 
+/**
+ * Marker for Dalil's own fetches (e.g. html-to-image during capture). A global
+ * symbol key so it survives separate bundles/chunks; fetch ignores symbol props.
+ */
+export const DALIL_INTERNAL: unique symbol = Symbol.for('dalil.internal') as never
+
+/** Returns a RequestInit that the patched fetch will neither record nor tag. */
+export function internalInit(init: RequestInit = {}): RequestInit {
+  return { ...init, [DALIL_INTERNAL]: true } as RequestInit
+}
+
+function isInternalInit(init: unknown): boolean {
+  return !!init && typeof init === 'object' && (init as Record<symbol, unknown>)[DALIL_INTERNAL] === true
+}
+
 function patchFetch() {
   if (typeof window === 'undefined' || typeof window.fetch !== 'function') return
   const orig = window.fetch
@@ -572,7 +587,7 @@ function patchFetch() {
     try {
       const req = isRequest(input) ? input : null
       const rawUrl = absolute(req ? req.url : String(input))
-      if (!isOwnEndpoint(rawUrl)) {
+      if (!isOwnEndpoint(rawUrl) && !isInternalInit(init)) {
         const method = (init?.method ?? req?.method ?? 'GET').toUpperCase()
         const headerSource = init?.headers !== undefined ? init.headers : req?.headers
         const info = headerInfo(headerEntries(headerSource as HeadersInit))

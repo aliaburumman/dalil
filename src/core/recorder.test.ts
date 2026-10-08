@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { __flushMirrorForTests, __resetForTests, init, log, onEvent, onOpen, open, snapshot } from './recorder'
+import { __flushMirrorForTests, internalInit, __resetForTests, init, log, onEvent, onOpen, open, snapshot } from './recorder'
 import type { ClickEvent, DalilConfig, RequestEvent } from './types'
 
 const API = 'https://api.thecourtspace.com'
@@ -32,6 +32,16 @@ afterEach(() => {
 })
 
 describe('fetch patch', () => {
+  it('ignores fetches carrying the internal marker (no event, no X-Request-Id)', async () => {
+    await fetch(`${API}/academy/logo.png`, internalInit())
+    await tick()
+    expect(requests()).toHaveLength(0)
+    expect(calls[0]!.init?.headers).toBeUndefined()
+    await fetch(`${API}/Players`)
+    await tick()
+    expect(requests()).toHaveLength(1)
+  })
+
   it('returns the original Response; host can still read json() after capture', async () => {
     const original = json({ success: false, code: 'InternalServerError', token: 'abc' })
     nextResponse = () => original

@@ -1,6 +1,7 @@
 // Lazy chunk: viewport screenshot via html-to-image. Loaded only when the widget
 // is about to open (or preloaded on hover/focus/shortcut).
 import { toJpeg } from 'html-to-image'
+import { internalInit } from '../core'
 
 const BUDGET_MS = 4000
 const MASK_CLASS = 'dalil-capturing'
@@ -148,6 +149,8 @@ export async function captureScreenshot(opts: CaptureOptions = {}): Promise<stri
       pixelRatio: 1,
       skipFonts: true,
       cacheBust: false,
+      // Mark html-to-image's own fetches so the recorder ignores them.
+      fetchRequestInit: internalInit(),
       backgroundColor: getComputedStyle(document.body).backgroundColor || '#ffffff',
       style: {
         transform: `translate(${-window.scrollX}px, ${-window.scrollY}px)`,

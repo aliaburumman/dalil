@@ -16,7 +16,7 @@
 //   open() / onOpen(cb) trigger the widget from host UI (button in a menu, etc).
 
 export * from './types'
-export { init, log, getConfig, snapshot, open, onOpen, onEvent, __resetForTests } from './recorder'
+export { init, log, getConfig, snapshot, open, onOpen, onEvent, internalInit, DALIL_INTERNAL, __resetForTests } from './recorder'
 export { classify } from './classify'
 export { toCurl } from './curl'
 export { redactJsonString, redactUrl, redactText, redactHeaders } from './redact'
