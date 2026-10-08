@@ -46,6 +46,24 @@ Optional hooks:
 - `data-dalil-ignore` keeps an element out of screenshots and blocks it from the recording.
 - `data-dalil-label="Save payment"` names an unlabelled button in the steps.
 
+## Any web app: `dalil/web` (0.3)
+
+No React needed. One script tag, or `import { init } from 'dalil/web'`. The UI renders inside a Shadow DOM, so host CSS (Tailwind, Bootstrap, Material) cannot break it.
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/dalil@0.3/dist/dalil.global.js"></script>
+<script>
+  Dalil.init({ project: 'myapp', publicKey: 'pk_...', endpoint: 'https://dalil.example.com/v1/reports',
+               apiOrigins: ['https://api.example.com'], enabled: false })
+  // after login:
+  Dalil.update({ enabled: true, getContext: () => ({ userId, userName, tenant }) })
+</script>
+```
+
+API: `init(config)` (idempotent; the recorder starts immediately, the UI mounts after `DOMContentLoaded`), `update(partial)` (enabled, getContext, labels, dir, theme, accent at runtime), `open()`, `log(msg, data?, level?)`, `destroy()`. The CDN build is about 57 KB gzipped (Preact, replay and screenshots inlined). The ESM entry loads replay, screenshots and the dialog lazily.
+
+Try it: `examples/plain-html/index.html`. Serve the repo root with any static server (`npx serve .`) and open `/examples/plain-html/`; the two buttons fire a failing fetch and a failing XHR. For a real 500 point `API` at a server that returns one.
+
 ## Captured automatically (0.2)
 
 Two things happen while `enabled` is true, so the reporter doesn't have to remember what happened:
