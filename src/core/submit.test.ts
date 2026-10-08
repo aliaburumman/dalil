@@ -33,11 +33,20 @@ describe('submit', () => {
     const res = await submit(payload, [{ part: 'image_0', name: 's.png', blob: new Blob(['x'], { type: 'image/png' }) }])
     expect(res.ref).toBe('SPACE-1')
     const call = seen.at(-1)!
-    expect(call.url).toBe(cfg.endpoint)
-    expect((call.init.headers as Record<string, string>)['X-Dalil-Key']).toBe('pk_1')
+    expect(call.url).toBe(`${cfg.endpoint}?project=space`)
+    const h = call.init.headers as Record<string, string>
+    expect(h['X-Dalil-Key']).toBe('pk_1')
+    expect(h['X-Dalil-Project']).toBe('space')
     const fd = call.init.body as FormData
     expect(fd.get('report')).toBeTruthy()
     expect(fd.get('image_0')).toBeTruthy()
+  })
+
+  it('does not duplicate an existing project query param', async () => {
+    __resetForTests()
+    init({ ...cfg, endpoint: `${cfg.endpoint}?project=space` })
+    await submit(payload, [])
+    expect(seen.at(-1)!.url).toBe(`${cfg.endpoint}?project=space`)
   })
 
   it('throws rejected on non-2xx', async () => {

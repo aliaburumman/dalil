@@ -30,6 +30,7 @@ interface PendingRecord {
   payload: ReportPayload
   images: SubmitImage[]
   endpoint: string
+  project?: string
   publicKey: string
   createdAt: number
 }
@@ -41,10 +42,27 @@ function buildForm(payload: ReportPayload, images: SubmitImage[]): FormData {
   return fd
 }
 
-async function send(endpoint: string, key: string, payload: ReportPayload, images: SubmitImage[]): Promise<Response> {
-  return getOriginalFetch()(endpoint, {
+/** Adds ?project=<id> (the worker scopes CORS preflight by it) unless already present. */
+function withProject(endpoint: string, project: string): string {
+  try {
+    const u = new URL(endpoint, typeof location !== 'undefined' ? location.href : undefined)
+    if (!u.searchParams.has('project')) u.searchParams.set('project', project)
+    return u.toString()
+  } catch {
+    return endpoint
+  }
+}
+
+async function send(
+  endpoint: string,
+  project: string,
+  key: string,
+  payload: ReportPayload,
+  images: SubmitImage[],
+): Promise<Response> {
+  return getOriginalFetch()(withProject(endpoint, project), {
     method: 'POST',
-    headers: { 'X-Dalil-Key': key },
+    headers: { 'X-Dalil-Project': project, 'X-Dalil-Key': key },
     body: buildForm(payload, images),
   })
 }
@@ -121,10 +139,10 @@ export async function submit(payload: ReportPayload, images: SubmitImage[] = [])
   if (!cfg) throw new DalilSubmitError('not_initialized', 'dalil.init() has not been called')
   let res: Response
   try {
-    res = await send(cfg.endpoint, cfg.publicKey, payload, images)
+    res = await send(cfg.endpoint, cfg.project, cfg.publicKey, payload, images)
   } catch (err) {
     try {
-      await putPending({ payload, images, endpoint: cfg.endpoint, publicKey: cfg.publicKey, createdAt: Date.now() })
+      await putPending({ payload, images, endpoint: cfg.endpoint, project: cfg.project, publicKey: cfg.publicKey, createdAt: Date.now() })
     } catch {
       throw new DalilSubmitError('queued', 'Network error; the report could not be saved for retry')
     }
@@ -156,7 +174,7 @@ export function flushPending(): Promise<SubmitResult | null> {
     }
     let res: Response
     try {
-      res = await send(rec.endpoint, rec.publicKey, rec.payload, rec.images ?? [])
+      res = await send(rec.endpoint, rec.project ?? rec.payload.project, rec.publicKey, rec.payload, rec.images ?? [])
     } catch {
       return null // still offline; keep it
     }
