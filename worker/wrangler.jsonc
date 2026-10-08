@@ -1,0 +1,48 @@
+{
+  // Dalil collector. See README.md for the one-time setup (D1, R2, secrets, Access).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "dalil-collector",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": false,
+  "routes": [{ "pattern": "dalil.thecourtspace.com", "custom_domain": true }],
+
+  "vars": {
+    // Used to build the triage link returned to the client and put in emails.
+    "PUBLIC_BASE": "https://dalil.thecourtspace.com",
+    // Resend sender. The domain must be verified in Resend.
+    "MAIL_FROM": "Dalil <dalil@thecourtspace.com>",
+    // D1-backed per ip+project cap (see README "Rate limiting").
+    "HOURLY_LIMIT": "20"
+  },
+  // Secrets (never in this file): RESEND_API_KEY -> `wrangler secret put RESEND_API_KEY`
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "dalil",
+      // Placeholder: replace with the id printed by `wrangler d1 create dalil`.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "dalil-reports" }],
+
+  // Workers Rate Limiting only supports period 10 or 60 seconds, so "20 per hour" cannot
+  // be expressed here. This binding is the burst guard (20/min per ip+project); the
+  // hourly cap is enforced with a D1 count in src/ratelimit.ts.
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      // Placeholder: any integer unique within your account.
+      "namespace_id": "1001",
+      "simple": { "limit": 20, "period": 60 }
+    }
+  ],
+
+  // Daily: delete rows past 90 days, retry failed emails.
+  "triggers": { "crons": ["17 3 * * *"] },
+
+  "observability": { "enabled": true }
+}
