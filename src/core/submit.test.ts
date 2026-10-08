@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { __resetForTests, init } from './recorder'
-import { DalilSubmitError, flushPending, submit } from './submit'
+import { __resetSubmitForTests, DalilSubmitError, flushPending, submit } from './submit'
 import type { ReportPayload } from './types'
 
 const payload = { v: 1, project: 'space', title: 'broken' } as unknown as ReportPayload
@@ -54,11 +54,13 @@ describe('submit', () => {
     await expect(submit(payload, [])).rejects.toMatchObject({ code: 'rejected', status: 403, message: 'bad key' })
   })
 
-  it('queues on network failure and flushPending resends', async () => {
+  it('queues on network failure while offline and flushPending resends', async () => {
+    const online = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
     mode = 'down'
     const err = await submit(payload, []).catch((e) => e)
     expect(err).toBeInstanceOf(DalilSubmitError)
     expect(err.code).toBe('queued')
+    online.mockRestore()
     expect(await flushPending()).toBeNull() // still down: kept
     mode = 'ok'
     const r = await flushPending()
@@ -88,5 +90,55 @@ describe('submit', () => {
     expect(await flushPending()).toBeNull()
     expect(seen.length).toBe(before)
     spy.mockRestore()
+  })
+
+  describe('failure reasons', () => {
+    let errSpy: ReturnType<typeof vi.spyOn>
+    beforeEach(() => {
+      errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    })
+    afterEach(() => {
+      errSpy.mockRestore()
+      vi.restoreAllMocks()
+    })
+
+    it('build error -> build_failed and nothing stored', async () => {
+      const circular: Record<string, unknown> = {}
+      circular.self = circular
+      const err = await submit(circular as unknown as ReportPayload, []).catch((e) => e)
+      expect(err.code).toBe('build_failed')
+      mode = 'ok'
+      const before = seen.length
+      expect(await flushPending()).toBeNull()
+      expect(seen.length).toBe(before)
+    })
+
+    it('fetch rejects while online -> unreachable, stored, console.error', async () => {
+      mode = 'down'
+      const err = await submit(payload, []).catch((e) => e)
+      expect(err.code).toBe('unreachable')
+      expect(err.message).toContain('Failed to fetch')
+      expect(errSpy).toHaveBeenCalled()
+      expect(String(errSpy.mock.calls[0]![0])).toContain('https://dalil.example.com')
+      mode = 'ok'
+      expect((await flushPending())?.ref).toBe('SPACE-1')
+    })
+
+    it('offline -> queued', async () => {
+      vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+      mode = 'down'
+      const err = await submit(payload, []).catch((e) => e)
+      expect(err.code).toBe('queued')
+      expect(errSpy).not.toHaveBeenCalled()
+    })
+
+    it('a CSP violation makes the message mention connect-src', async () => {
+      const ev = new Event('securitypolicyviolation')
+      Object.defineProperty(ev, 'blockedURI', { value: 'https://dalil.example.com/v1/reports' })
+      document.dispatchEvent(ev)
+      mode = 'down'
+      await submit(payload, []).catch(() => {})
+      expect(String(errSpy.mock.calls[0]![0])).toContain("blocked by this page's Content-Security-Policy (connect-src)")
+    })
   })
 })

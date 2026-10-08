@@ -7,7 +7,7 @@ export interface SubmitImage {
   blob: Blob
 }
 
-export type SubmitErrorCode = 'queued' | 'rejected' | 'not_initialized' | 'save_failed'
+export type SubmitErrorCode = 'queued' | 'rejected' | 'not_initialized' | 'save_failed' | 'unreachable' | 'build_failed'
 
 /** Thrown by submit(). `queued` = network failed, report kept in IndexedDB for flushPending(). */
 export class DalilSubmitError extends Error {
@@ -53,18 +53,51 @@ function withProject(endpoint: string, project: string): string {
   }
 }
 
-async function send(
-  endpoint: string,
-  project: string,
-  key: string,
-  payload: ReportPayload,
-  images: SubmitImage[],
-): Promise<Response> {
+function post(endpoint: string, project: string, key: string, body: FormData): Promise<Response> {
   return getOriginalFetch()(withProject(endpoint, project), {
     method: 'POST',
     headers: { 'X-Dalil-Project': project, 'X-Dalil-Key': key },
-    body: buildForm(payload, images),
+    body,
   })
+}
+
+function originOf(endpoint: string): string {
+  try {
+    return new URL(endpoint, typeof location !== 'undefined' ? location.href : undefined).origin
+  } catch {
+    return endpoint
+  }
+}
+
+let cspViolation = false
+let cspWatching = false
+let reportedUnreachable = false
+
+/** Remembers a CSP connect-src violation against the collector origin. Called once from init(). */
+export function watchCspViolations(): void {
+  if (cspWatching || typeof document === 'undefined') return
+  cspWatching = true
+  document.addEventListener('securitypolicyviolation', (e) => {
+    const cfg = getConfig()
+    const blocked = (e as SecurityPolicyViolationEvent).blockedURI
+    if (cfg && typeof blocked === 'string' && blocked.startsWith(originOf(cfg.endpoint))) cspViolation = true
+  })
+}
+
+/** Test hook. */
+export function __resetSubmitForTests(): void {
+  cspViolation = false
+  reportedUnreachable = false
+}
+
+function logUnreachable(endpoint: string, err: unknown, always: boolean): void {
+  if (!always && reportedUnreachable) return
+  reportedUnreachable = true
+  const origin = originOf(endpoint)
+  const why = cspViolation
+    ? `The request was blocked by this page's Content-Security-Policy (connect-src). Add ${origin} to connect-src.`
+    : `If the page has a Content-Security-Policy, add ${origin} to connect-src.`
+  console.error(`[dalil] Could not reach the collector at ${origin}. ${why} Original error:`, err)
 }
 
 async function readResult(res: Response): Promise<SubmitResult> {
@@ -138,16 +171,30 @@ const deletePending = () => tx('readwrite', (s) => s.delete(KEY))
 export async function submit(payload: ReportPayload, images: SubmitImage[] = []): Promise<SubmitResult> {
   const cfg = getConfig()
   if (!cfg) throw new DalilSubmitError('not_initialized', 'dalil.init() has not been called')
+  let body: FormData
+  try {
+    body = buildForm(payload, images)
+  } catch (err) {
+    throw new DalilSubmitError('build_failed', `Could not build the report (${(err as Error)?.message ?? err})`)
+  }
   let res: Response
   try {
-    res = await send(cfg.endpoint, cfg.project, cfg.publicKey, payload, images)
+    res = await post(cfg.endpoint, cfg.project, cfg.publicKey, body)
   } catch (err) {
     try {
       await putPending({ payload, images, endpoint: cfg.endpoint, project: cfg.project, publicKey: cfg.publicKey, createdAt: Date.now() })
     } catch {
       throw new DalilSubmitError('save_failed', 'Network error; the report could not be saved for retry')
     }
-    throw new DalilSubmitError('queued', `Network error; report saved and will be retried (${(err as Error)?.message ?? err})`)
+    const detail = (err as Error)?.message ?? String(err)
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new DalilSubmitError('queued', `Network error; report saved and will be retried (${detail})`)
+    }
+    logUnreachable(cfg.endpoint, err, true)
+    throw new DalilSubmitError(
+      'unreachable',
+      `Could not reach the collector at ${originOf(cfg.endpoint)}; report saved and will be retried (${detail})`,
+    )
   }
   return readResult(res)
 }
@@ -175,8 +222,9 @@ export function flushPending(): Promise<SubmitResult | null> {
     }
     let res: Response
     try {
-      res = await send(rec.endpoint, rec.project ?? rec.payload.project, rec.publicKey, rec.payload, rec.images ?? [])
-    } catch {
+      res = await post(rec.endpoint, rec.project ?? rec.payload.project, rec.publicKey, buildForm(rec.payload, rec.images ?? []))
+    } catch (err) {
+      logUnreachable(rec.endpoint, err, false)
       return null // still offline; keep it
     }
     if (res.status >= 500) return null // collector hiccup; keep it for the next init

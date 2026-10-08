@@ -10,7 +10,7 @@ import {
   redactUrl,
   truncate,
 } from './redact'
-import { flushPending } from './submit'
+import { flushPending, watchCspViolations } from './submit'
 import type {
   DalilConfig,
   DalilEvent,
@@ -871,6 +871,7 @@ export function init(cfg: DalilConfig): void {
       lastNavUrl = last?.type === 'nav' ? last.url : undefined
       recordNav()
     },
+    watchCspViolations,
     () => {
       setTimeout(() => {
         flushPending().catch(() => {})
