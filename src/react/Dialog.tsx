@@ -18,7 +18,7 @@ import { fitBody, type SizedPart } from './assemble'
 import { dataUrlToBlob } from './images'
 import { Annotator, type AnnotatorHandle } from './Annotator'
 import { ImagePicker, type PickedImage } from './ImagePicker'
-import { fmt, type Labels } from './labels'
+import { defaultLabels, fmt, type Labels } from './labels'
 import { rootAttrs, type Appearance } from './styles'
 
 export interface DialogSnapshot {
@@ -237,7 +237,19 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
         onClose()
         return
       }
-      setError(err instanceof DalilSubmitError && err.code === 'save_failed' ? labels.saveFailed : labels.rejected)
+      if (err instanceof DalilSubmitError && err.code === 'unreachable') {
+        onToast(labels.unreachable ?? defaultLabels.unreachable!)
+        onClose()
+        return
+      }
+      const code = err instanceof DalilSubmitError ? err.code : null
+      setError(
+        code === 'save_failed'
+          ? labels.saveFailed
+          : code === 'build_failed'
+            ? (labels.buildFailed ?? defaultLabels.buildFailed!)
+            : labels.rejected,
+      )
       setSending(false)
     }
   }
@@ -357,7 +369,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
             <li>
               {labels.likely}: {snap.verdict.headline}
             </li>
-            {snap.verdict.userSaw && <li>User saw: "{snap.verdict.userSaw}"</li>}
+            {snap.verdict.userSaw && <li>{labels.userSaw ?? 'User saw'}: "{snap.verdict.userSaw}"</li>}
             <li>{fmt(counts.steps === 1 ? (labels.stepsOne ?? labels.steps) : labels.steps, { n: counts.steps })}</li>
             <li>{fmt(counts.requests === 1 ? (labels.requestsOne ?? labels.requests) : labels.requests, { n: counts.requests, m: counts.failed })}</li>
             {replayInfo && (

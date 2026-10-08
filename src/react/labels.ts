@@ -41,6 +41,11 @@ export interface Labels {
   queued: string
   rejected: string
   saveFailed: string
+  /** v0.2.1 labels, optional. */
+  unreachable?: string
+  buildFailed?: string
+  /** Prefix of the 'User saw' line. */
+  userSaw?: string
   /** v0.2 labels are optional so existing hosts still compile; English defaults apply. */
   autoCaptured?: string
   removeAutoCaptured?: string
@@ -91,6 +96,10 @@ export const defaultLabels: Labels = {
   screenRecording: 'Screen recording: last {duration} (inputs hidden)',
   includeRecording: 'Include the screen recording',
   preparingRecording: 'Preparing recording…',
+  unreachable:
+    "Couldn't reach the bug-report server. Your report is saved on this device and will be retried automatically; please tell the team.",
+  buildFailed: 'Something went wrong preparing the report. Please try again.',
+  userSaw: 'User saw',
   saveFailed: "You appear to be offline and the report couldn't be saved. Please try again.",
 }
 

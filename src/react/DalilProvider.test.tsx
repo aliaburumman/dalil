@@ -228,6 +228,27 @@ describe('DalilProvider', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it("'unreachable' closes with the unreachable toast", async () => {
+    core.submit.mockRejectedValue(new core.DalilSubmitError('unreachable', 'blocked'))
+    render(<DalilProvider {...base} enabled />)
+    await openDialog()
+    fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(await screen.findByText(/Couldn't reach the bug-report server/)).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it("'build_failed' keeps the form with an inline error", async () => {
+    core.submit.mockRejectedValue(new core.DalilSubmitError('build_failed', 'boom'))
+    render(<DalilProvider {...base} enabled />)
+    await openDialog()
+    fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'kept' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/preparing the report/)
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
   it("'rejected' keeps the form and shows an inline error", async () => {
     core.submit.mockRejectedValue(new core.DalilSubmitError('rejected', '400'))
     render(<DalilProvider {...base} enabled />)
