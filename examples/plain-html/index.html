@@ -16,10 +16,9 @@
 
   <script src="../../dist/dalil.global.js"></script>
   <script>
-    // Serve this folder's repo root, e.g. `npx serve .` from the repo root, then open
-    // /examples/plain-html/. /fail answers 500 from the same server only if you add one;
-    // otherwise the request fails at the network level, which Dalil also records.
-    const API = location.origin
+    // Serve the repo root (`npx serve .`), start the mock API (`node examples/angular/mock-server.mjs`,
+    // answers 500 with CORS on :4300), then open /examples/plain-html/.
+    const API = 'http://localhost:4300'
     Dalil.init({
       project: 'example',
       publicKey: 'pk_example',

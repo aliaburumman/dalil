@@ -18,6 +18,12 @@ Reports go to **your own collector**, a small Cloudflare Worker (D1 + R2 + Resen
 npm i dalil
 ```
 
+Pick your stack. Every stack needs the same four values: `project`, `publicKey`, `endpoint` (your collector) and `apiOrigins` (only these origins get `X-Request-Id`). Turn it on with `enabled: true` once the user is logged in.
+
+Size: `dalil/web` loads about 27 KB gzipped eagerly (the screen recorder, screenshot code and dialog load later, on demand). The single-file `dalil.global.js` is about 58 KB gzipped with everything inlined.
+
+### React
+
 ```tsx
 import { DalilProvider } from 'dalil/react'
 
@@ -39,6 +45,106 @@ import { DalilProvider } from 'dalil/react'
 
 Open it with the floating button, **Ctrl/⌘ + Shift + B**, or `useDalil().open()` from your own menu.
 
+`theme` forces light or dark so the dialog matches your app's own switch rather than the OS. `accent` / `accentForeground` set the brand colour (pass both). Plural labels: `labels={{ steps: '{n} steps', stepsOne: '{n} step', requests: '{n} requests ({m} failed)', requestsOne: '{n} request ({m} failed)' }}`.
+
+Open it with the floating button, **Ctrl/⌘ + Shift + B**, or `useDalil().open()` from your own menu.
+
+CSP: `connect-src 'self' https://dalil.example.com https://img.example.com` (collector, plus hosts serving images you want inlined in screenshots).
+
+### Angular
+
+No Angular package is needed; use `dalil/web`. Run it **outside Angular's zone**, otherwise the recorder's timers, MutationObservers and listeners trigger a change-detection cycle on every event.
+
+```ts
+// main.ts
+import { NgZone } from '@angular/core'
+import { bootstrapApplication } from '@angular/platform-browser'
+import { init } from 'dalil/web'
+
+bootstrapApplication(App, appConfig).then((appRef) => {
+  appRef.injector.get(NgZone).runOutsideAngular(() =>
+    init({
+      project: 'myapp',
+      publicKey: 'pk_...',
+      endpoint: 'https://dalil.example.com/v1/reports',
+      apiOrigins: ['https://api.example.com'],
+      enabled: false,                       // turn on after login
+    }),
+  )
+})
+```
+
+```ts
+// after login / on logout. update() mounts the widget, so keep it outside the zone too
+this.zone.runOutsideAngular(() =>
+  update({ enabled: true, getContext: () => ({ userId, userName, tenant }) }),
+)
+```
+
+- **HttpClient** uses XHR by default and is captured with no setup: failed status, JSON error bodies, abort and timeout. Add the API host to `apiOrigins` to get `X-Request-Id`.
+- **ngx-toastr** error toasts (`.toast-error`) are detected by default and appear in the report as `User saw: "..."`. Toastify, sonner and notistack are detected too.
+- **Angular Material snack-bars** have no error class by default. Open them with `panelClass: 'dalil-error'` and pass `toastSelectors: ['.dalil-error']` to `init`. Setting `toastSelectors` replaces the defaults, so list the others as well if you use them.
+- **Optional `ErrorHandler`**: Angular's default handler already logs through `console.error`, which Dalil captures. For a richer message and stack, forward it:
+
+```ts
+import { ErrorHandler, Injectable } from '@angular/core'
+import { log } from 'dalil/web'
+
+@Injectable()
+export class DalilErrorHandler implements ErrorHandler {
+  handleError(err: unknown) {
+    log(err instanceof Error ? err.message : String(err), err instanceof Error ? err.stack : err, 'error')
+    console.error(err)
+  }
+}
+// providers: [{ provide: ErrorHandler, useClass: DalilErrorHandler }]
+```
+
+CSP: `connect-src 'self' https://dalil.example.com https://img.example.com`. No `script-src` change is needed when you import from npm.
+
+A working app with a local 500 server, a headless check and the change-detection measurement is in [`examples/angular`](examples/angular).
+
+### Vue
+
+```ts
+// main.ts
+import { createApp } from 'vue'
+import { init, update } from 'dalil/web'
+import App from './App.vue'
+
+init({
+  project: 'myapp',
+  publicKey: 'pk_...',
+  endpoint: 'https://dalil.example.com/v1/reports',
+  apiOrigins: ['https://api.example.com'],
+  enabled: false,
+})
+createApp(App).mount('#app')
+
+// in your login / logout code (or a watcher on the user store)
+update({ enabled: true, getContext: () => ({ userId, userName, tenant }) })
+```
+
+Vue needs no zone handling. Use `update({ dir: 'rtl' })` / `update({ labels })` when the language changes. CSP: `connect-src 'self' https://dalil.example.com https://img.example.com`.
+
+### Plain HTML or server-rendered pages
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/dalil@0.3.0/dist/dalil.global.js"></script>
+<script>
+  Dalil.init({ project: 'myapp', publicKey: 'pk_...', endpoint: 'https://dalil.example.com/v1/reports',
+               apiOrigins: ['https://api.example.com'], enabled: false })
+  // after login:
+  Dalil.update({ enabled: true, getContext: () => ({ userId, userName, tenant }) })
+</script>
+```
+
+Pin the version (`@0.3.0`), not a range, so a CDN update cannot change what runs on your pages. Load it before your own scripts to capture their first requests. CSP: `script-src 'self' https://cdn.jsdelivr.net` and `connect-src 'self' https://dalil.example.com https://img.example.com`. Self-hosting `dist/dalil.global.js` instead removes the `script-src` line. The replay, screenshot and dialog chunks are already inlined in this file.
+
+Try it: `examples/plain-html/index.html` (see [Any web app](#any-web-app-dalilweb-03)).
+
+### Options for every stack
+
 Optional hooks:
 
 - `log('Zod drift on /players', issues, 'error')` adds your own events to the timeline.
@@ -51,7 +157,7 @@ Optional hooks:
 No React needed. One script tag, or `import { init } from 'dalil/web'`. The UI renders inside a Shadow DOM, so host CSS (Tailwind, Bootstrap, Material) cannot break it.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/dalil@0.3/dist/dalil.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dalil@0.3.0/dist/dalil.global.js"></script>
 <script>
   Dalil.init({ project: 'myapp', publicKey: 'pk_...', endpoint: 'https://dalil.example.com/v1/reports',
                apiOrigins: ['https://api.example.com'], enabled: false })
@@ -60,9 +166,9 @@ No React needed. One script tag, or `import { init } from 'dalil/web'`. The UI r
 </script>
 ```
 
-API: `init(config)` (idempotent; the recorder starts immediately, the UI mounts after `DOMContentLoaded`), `update(partial)` (enabled, getContext, labels, dir, theme, accent at runtime), `open()`, `log(msg, data?, level?)`, `destroy()`. The CDN build is about 57 KB gzipped (Preact, replay and screenshots inlined). The ESM entry loads replay, screenshots and the dialog lazily.
+API: `init(config)` (idempotent; the recorder starts immediately, the UI mounts after `DOMContentLoaded`), `update(partial)` (enabled, getContext, labels, dir, theme, accent at runtime), `open()`, `log(msg, data?, level?)`, `destroy()`. The CDN build is about 58 KB gzipped (Preact, replay and screenshots inlined). The ESM entry is about 27 KB gzipped up front and loads replay, screenshots and the dialog lazily.
 
-Try it: `examples/plain-html/index.html`. Serve the repo root with any static server (`npx serve .`) and open `/examples/plain-html/`; the two buttons fire a failing fetch and a failing XHR. For a real 500 point `API` at a server that returns one.
+Try it: `examples/plain-html/index.html`. Start the mock API (`node examples/angular/mock-server.mjs`, answers 500 on port 4300), serve the repo root with any static server (`npx serve .`) and open `/examples/plain-html/`; the two buttons fire a failing fetch and a failing XHR. `node examples/plain-html/e2e.mjs` runs the same check headless.
 
 ## Captured automatically (0.2)
 
