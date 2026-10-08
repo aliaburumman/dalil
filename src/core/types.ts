@@ -2,7 +2,7 @@
 // and the collector (worker/). The worker keeps a copy of the payload types in
 // worker/src/payload.ts; bump PAYLOAD_VERSION when either side changes shape.
 
-export const PAYLOAD_VERSION = 1
+export const PAYLOAD_VERSION = 2
 
 /** Every captured moment. `t` is epoch ms; `id` is unique within one page load. */
 export type DalilEvent =
@@ -147,8 +147,35 @@ export interface ReportPayload {
   /** curl per failed request, keyed by event id */
   curls: Record<string, string>
   /** image part names in order; image_0 is the (annotated) screenshot when present */
-  images: { part: string; kind: 'screenshot' | 'attachment'; name: string }[]
+  images: { part: string; kind: 'screenshot' | 'attachment' | 'auto'; name: string }[]
   screenshotError?: string
+  /** v2: screens captured automatically at failure moments (parts auto_0..auto_2), oldest first */
+  autoSnaps?: AutoSnapMeta[]
+  /** v2: gzipped rrweb event JSON in part "replay" */
+  replay?: ReplayMeta
+  /** v2: why no replay was attached (unsupported, over cap, disabled, excluded by tester) */
+  replayError?: string
+}
+
+export type AutoSnapReason = 'toast' | 'request' | 'error'
+
+export interface AutoSnapMeta {
+  part: string // auto_0..auto_2
+  t: number
+  reason: AutoSnapReason
+  /** human label, e.g. "Error toast: Failed to save payment" or "POST /Payment/Create → 500" */
+  label: string
+  eventId?: string
+}
+
+export interface ReplayMeta {
+  part: 'replay'
+  durationMs: number
+  events: number
+  /** compressed bytes */
+  bytes: number
+  /** rrweb version that recorded it, for the player */
+  rrweb: string
 }
 
 /** Collector response to POST /v1/reports */

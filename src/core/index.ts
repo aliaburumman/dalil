@@ -22,3 +22,4 @@ export { redactJsonString, redactUrl, redactText, redactHeaders } from './redact
 export { submit, flushPending } from './submit'
 export { DalilSubmitError } from './submit'
 export type { SubmitImage, SubmitErrorCode } from './submit'
+export { LIMITS, IMAGE_PART, AUTO_PART, REPLAY_PART } from './limits'
