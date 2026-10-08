@@ -35,11 +35,7 @@ async function openAndRead(page) {
   const inLight = await page.evaluate(() => !!document.body.querySelector(':scope > .dalil-dialog, .dalil-dialog'));
   await page.keyboard.press('Escape');
   const gone = () => page.waitForFunction(() => !document.querySelector('dalil-root')?.shadowRoot?.querySelector('.dalil-dialog'), null, { timeout: 3000 });
-  await gone().catch(async () => {
-    console.log('note: Escape did not close the dialog, using Cancel');
-    await page.evaluate(() => document.querySelector('dalil-root').shadowRoot.querySelector('.dalil-actions .dalil-btn').click());
-    await gone();
-  });
+  await gone();
   return { text, inLight };
 }
 

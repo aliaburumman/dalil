@@ -169,6 +169,30 @@ describe('DalilProvider', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   })
 
+  it('Esc closes on every reopen, even with focus outside; focus lands on the textarea and returns to the opener', async () => {
+    render(<DalilProvider {...base} enabled hideButton />)
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    for (let i = 0; i < 3; i++) {
+      opener.focus()
+      await openDialog()
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('What went wrong?')))
+      if (i === 1) opener.focus() // focus outside the dialog
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      expect(document.activeElement).toBe(opener)
+    }
+    opener.remove()
+  })
+
+  it('Esc is ignored during IME composition', async () => {
+    render(<DalilProvider {...base} enabled hideButton />)
+    await openDialog()
+    fireEvent.keyDown(document.body, { key: 'Escape', isComposing: true })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(screen.queryByRole('dialog')).not.toBeNull()
+  })
+
   it('submits a full payload with the screenshot part and shows the ref toast', async () => {
     core.submit.mockResolvedValue({ id: 'x', ref: 'SPACE-142', url: 'https://c/x' })
     render(<DalilProvider {...base} enabled />)

@@ -104,6 +104,27 @@ describe('dalil/web', () => {
     expect(shadow()!.querySelector('[role=dialog]')).toBeNull()
   })
 
+  it('Esc closes on every reopen (shadow), focus lands in the textarea and returns to the opener', async () => {
+    await act(async () => init({ ...cfg }))
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    for (let i = 0; i < 3; i++) {
+      opener.focus()
+      await act(async () => open())
+      await until(() => shadow()!.querySelector('[role=dialog]'))
+      await until(() => shadow()!.activeElement?.tagName === 'TEXTAREA')
+      expect(shadow()!.activeElement?.tagName).toBe('TEXTAREA')
+      if (i === 1) opener.focus()
+      await act(async () => {
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      })
+      await until(() => !shadow()!.querySelector('[role=dialog]'))
+      expect(shadow()!.querySelector('[role=dialog]')).toBeNull()
+      expect(document.activeElement).toBe(opener)
+    }
+    opener.remove()
+  })
+
   it('destroy() removes the element and stops replay and auto-snapshots', async () => {
     await act(async () => init({ ...cfg }))
     await until(() => rep.startReplay.mock.calls.length)

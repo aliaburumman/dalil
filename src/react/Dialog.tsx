@@ -1,5 +1,5 @@
 // Lazy chunk: the report dialog. Rendered only after the screenshot attempt finished.
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   DalilSubmitError,
   PAYLOAD_VERSION,
@@ -120,11 +120,39 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
     return { steps, requests, failed }
   }, [snap.events])
 
-  // Focus the first field on open; restore focus to the trigger on close.
-  useEffect(() => {
-    const prev = activeIn(rootRef.current)
+  // Layout effects (not passive) so focus and Escape work the moment the dialog is in the DOM, before any paint.
+  // Focus the first field on every open (retrying once next frame in case the host still holds focus);
+  // restore focus to the opener on close.
+  useLayoutEffect(() => {
+    const root = rootRef.current?.getRootNode?.() as Document | ShadowRoot | undefined
+    const doc = rootRef.current?.ownerDocument ?? document
+    // The opener lives in the page's document even when the dialog is inside a shadow root.
+    const own = activeIn(rootRef.current)
+    const prev = own && own !== doc.body ? own : root && 'host' in root ? (doc.activeElement as HTMLElement | null) : own
+    const inside = () => {
+      const a = activeIn(rootRef.current)
+      return !!a && !!rootRef.current?.contains(a)
+    }
     firstRef.current?.focus()
-    return () => prev?.focus?.()
+    const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => { if (!inside()) firstRef.current?.focus() }) : 0
+    return () => {
+      if (raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(raf)
+      prev?.focus?.()
+    }
+  }, [])
+
+  // Escape closes while the dialog is open, wherever focus is (listener lives on the owner document).
+  const closeRef = useRef({ sending, onClose })
+  closeRef.current = { sending, onClose }
+  useLayoutEffect(() => {
+    const doc = rootRef.current?.ownerDocument ?? document
+    const onDocKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing || e.keyCode === 229) return
+      if (closeRef.current.sending) return
+      closeRef.current.onClose()
+    }
+    doc.addEventListener('keydown', onDocKey, true)
+    return () => doc.removeEventListener('keydown', onDocKey, true)
   }, [])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
