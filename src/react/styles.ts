@@ -69,11 +69,16 @@ export function rootAttrs(a: Appearance): { 'data-theme'?: 'light' | 'dark'; sty
 
 const STYLE_ID = 'dalil-styles'
 
-export function ensureStyles(): void {
-  if (typeof document === 'undefined' || document.getElementById(STYLE_ID)) return
+/** Inject the stylesheet once into `root`: document.head (light DOM, default) or a ShadowRoot. */
+export function ensureStyles(root?: Document | ShadowRoot): void {
+  if (typeof document === 'undefined') return
+  const target: ParentNode | null = root ? root : document.head
+  if (!target) return
+  const has = root ? root.querySelector(`#${STYLE_ID}`) : document.getElementById(STYLE_ID)
+  if (has) return
   const el = document.createElement('style')
   el.id = STYLE_ID
   el.setAttribute('data-dalil-ignore', '')
   el.textContent = CSS
-  document.head.appendChild(el)
+  target.appendChild(el)
 }

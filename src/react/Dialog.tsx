@@ -83,6 +83,12 @@ function buildEnv(): Environment {
 const FOCUSABLE =
   'button:not([disabled]),[href],input:not([disabled]),select,textarea:not([disabled]),[tabindex]:not([tabindex="-1"]),summary'
 
+/** Active element within the node's own root (document or shadow root). */
+function activeIn(node: Element | null): HTMLElement | null {
+  const root = node?.getRootNode?.() as Document | ShadowRoot | undefined
+  return ((root && 'activeElement' in root ? root.activeElement : document.activeElement) as HTMLElement | null) ?? null
+}
+
 export function Dialog({ project, labels, dir, getContext, snap, screenshot, autoSnaps: initialAutos, replay, onClose, onToast, theme, accent, accentForeground }: DialogProps) {
   const ids = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -116,7 +122,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
 
   // Focus the first field on open; restore focus to the trigger on close.
   useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null
+    const prev = activeIn(rootRef.current)
     firstRef.current?.focus()
     return () => prev?.focus?.()
   }, [])
@@ -132,10 +138,11 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
     const first = items[0]
     const last = items[items.length - 1]
     if (!first || !last) return
-    if (e.shiftKey && document.activeElement === first) {
+    const active = activeIn(rootRef.current)
+    if (e.shiftKey && active === first) {
       e.preventDefault()
       last.focus()
-    } else if (!e.shiftKey && document.activeElement === last) {
+    } else if (!e.shiftKey && active === last) {
       e.preventDefault()
       first.focus()
     }
