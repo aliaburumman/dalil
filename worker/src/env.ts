@@ -9,6 +9,10 @@ export interface Env {
   PUBLIC_BASE: string
   MAIL_FROM: string
   HOURLY_LIMIT?: string
+  /** Cloudflare Access team domain, e.g. myteam.cloudflareaccess.com (empty = list/status locked) */
+  ACCESS_TEAM_DOMAIN?: string
+  /** Cloudflare Access application AUD tag */
+  ACCESS_AUD?: string
   /** secret: `wrangler secret put RESEND_API_KEY` */
   RESEND_API_KEY?: string
   /** static assets (vendored rrweb-player), see wrangler.jsonc "assets" */

@@ -88,3 +88,45 @@ export async function call(req: Request, e: Env = testEnv()): Promise<Response> 
   await waitOnExecutionContext(ctx)
   return res
 }
+
+// ---- Cloudflare Access test fixtures ----
+export const TEAM = 'myteam.cloudflareaccess.com'
+export const AUD = 'aud-tag-123'
+export const ACCESS_VARS: Partial<Env> = { ACCESS_TEAM_DOMAIN: TEAM, ACCESS_AUD: AUD }
+
+const b64u = (b: ArrayBuffer | Uint8Array | string): string => {
+  const bytes = typeof b === 'string' ? new TextEncoder().encode(b) : new Uint8Array(b)
+  let s = ''
+  for (const c of bytes) s += String.fromCharCode(c)
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+const algo = { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }
+let keys: Promise<{ pair: CryptoKeyPair; jwk: JsonWebKey }> | undefined
+function getKeys(): Promise<{ pair: CryptoKeyPair; jwk: JsonWebKey }> {
+  keys ??= (async () => {
+    const pair = (await crypto.subtle.generateKey(algo, true, ['sign', 'verify'])) as CryptoKeyPair
+    return { pair, jwk: (await crypto.subtle.exportKey('jwk', pair.publicKey)) as JsonWebKey }
+  })()
+  return keys
+}
+
+/** Sign an Access-style JWT with the test key. Overrides replace the default claims; kid defaults to 'k1'. */
+export async function signJwt(claims: Record<string, unknown> = {}, kid = 'k1'): Promise<string> {
+  const now = Math.floor(Date.now() / 1000)
+  const payload = { aud: [AUD], iss: `https://${TEAM}`, email: 'ali@example.com', iat: now, nbf: now, exp: now + 3600, ...claims }
+  const head = b64u(JSON.stringify({ alg: 'RS256', kid, typ: 'JWT' }))
+  const body = b64u(JSON.stringify(payload))
+  const sig = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', (await getKeys()).pair.privateKey, new TextEncoder().encode(`${head}.${body}`))
+  return `${head}.${body}.${b64u(sig)}`
+}
+
+/** Returns a certs response for the Access JWKS URL, or null for any other URL. */
+export async function certsResponse(url: string): Promise<Response | null> {
+  if (url !== `https://${TEAM}/cdn-cgi/access/certs`) return null
+  return Response.json({ keys: [{ ...(await getKeys()).jwk, kid: 'k1', alg: 'RS256', use: 'sig' }] })
+}
+
+export async function accessHeaders(claims: Record<string, unknown> = {}): Promise<Record<string, string>> {
+  return { 'cf-access-jwt-assertion': await signJwt(claims) }
+}

@@ -1,5 +1,6 @@
 // Triage page: GET /r/:id, GET /r/:id/img/:part, POST /r/:id/status.
 // Assumed to sit behind Cloudflare Access (README); the Worker has no auth of its own.
+import { accessDenied, verifyAccess } from './access'
 import { loadStored, refOf } from './email'
 import type { Env, ReportRow } from './env'
 import { getProject } from './ingest'
@@ -69,6 +70,7 @@ export async function handleReplay(env: Env, id: string): Promise<Response> {
 
 export async function handleStatus(req: Request, env: Env, id: string): Promise<Response> {
   // Same-origin check: a cheap CSRF guard on top of Access.
+  if (!(await verifyAccess(req, env))) return accessDenied()
   const origin = req.headers.get('origin')
   if (origin && origin !== new URL(req.url).origin) return new Response('Forbidden', { status: 403 })
   const row = await getReport(env, id)

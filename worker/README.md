@@ -81,9 +81,9 @@ npx wrangler d1 migrations apply dalil --remote
   (back with `'digest'`).
 - **Reports list**: `GET /` (all projects) and `GET /p/:project`, newest first, 50 per page (`?page=`),
   filters `?status=open|all|new|seen|fixed|wontfix` (default `open` = new+seen), `?severity=`, `?kind=`.
-  Both routes return 403 unless the request carries a non-empty `Cf-Access-Jwt-Assertion` header, so
-  the hostname must be behind Cloudflare Access (see below). Only the header's presence is checked;
-  verifying the JWT against the team's certs is a later hardening step. `/r/:id` is unchanged.
+  Both routes (and `POST /r/:id/status`) return 403 unless the request carries a valid Cloudflare
+  Access JWT (see "Verifying the Access JWT" below); the page header shows the signed-in email.
+  `GET /r/:id` and its image/replay routes are not yet verified (unguessable ids; hardening later).
 
 ## Client contract
 
@@ -172,7 +172,8 @@ origins with the real portal URLs. `notify_emails = '[]'` stores reports without
 
 ### Cloudflare Access (two applications)
 
-The Worker has no auth code; Access protects the triage page.
+Access protects the triage page at the edge; the Worker additionally verifies the JWT for the
+reports list and status changes.
 
 1. **Self-hosted app "Dalil"** — domain `dalil.thecourtspace.com` (whole host).
    Policy: *Allow*, include your email(s), login method One-time PIN.
@@ -183,6 +184,19 @@ The Worker has no auth code; Access protects the triage page.
 Check after setup: `curl -i https://dalil.thecourtspace.com/r/x` should redirect to the
 Access login; `curl -i -X OPTIONS https://dalil.thecourtspace.com/v1/reports -H 'Origin: https://evil.example'`
 should return the Worker's `403`, not an Access page.
+
+### Verifying the Access JWT
+
+Set two vars in `wrangler.jsonc` (`vars`) after creating the Access application, then deploy:
+
+| Var | Where to find it |
+|---|---|
+| `ACCESS_AUD` | Zero Trust -> Access -> Applications -> the "Dalil" app -> Overview, "Application Audience (AUD) Tag" |
+| `ACCESS_TEAM_DOMAIN` | `<team name>.cloudflareaccess.com`; the team name is under Zero Trust -> Settings -> Custom pages |
+
+The Worker fetches `https://<team domain>/cdn-cgi/access/certs` (cached 1 hour), verifies the RS256
+signature, `aud`, `iss` and `exp`, and reads the JWT from `Cf-Access-Jwt-Assertion` (or the
+`CF_Authorization` cookie). If either var is empty the list and status routes fail closed with 403.
 
 ## Develop and test
 

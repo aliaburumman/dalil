@@ -13,7 +13,13 @@
     // Resend sender. The domain must be verified in Resend.
     "MAIL_FROM": "Dalil <dalil@thecourtspace.com>",
     // D1-backed per ip+project cap (see README "Rate limiting").
-    "HOURLY_LIMIT": "20"
+    "HOURLY_LIMIT": "20",
+    // Fill these after creating the Access application (Zero Trust -> Access -> Applications ->
+    // the app's Overview shows the AUD tag; the team domain is <team name>.cloudflareaccess.com,
+    // team name under Settings -> Custom pages). While empty, the reports list and status
+    // changes are locked (403).
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
   },
   // Secrets (never in this file): RESEND_API_KEY -> `wrangler secret put RESEND_API_KEY`
 

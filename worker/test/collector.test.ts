@@ -1,8 +1,9 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReportRow } from '../src/env'
+import { resetAccessCache } from '../src/access'
 import worker from '../src/index'
-import { BASE, call, form, ingestRequest, JPEG, ORIGIN, PNG, payload, seed, testEnv } from './helpers'
+import { ACCESS_VARS, accessHeaders, BASE, call, certsResponse, form, ingestRequest, JPEG, ORIGIN, PNG, payload, seed, testEnv } from './helpers'
 
 type ResendBody = { from: string; to: string[]; subject: string; html: string; attachments?: { filename: string; content: string; content_id?: string }[] }
 
@@ -10,11 +11,14 @@ let resendCalls: ResendBody[] = []
 let resendStatus = 200
 
 beforeEach(async () => {
+  resetAccessCache()
   await seed()
   resendCalls = []
   resendStatus = 200
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const certs = await certsResponse(url)
+    if (certs) return certs
     if (url !== 'https://api.resend.com/emails') throw new Error(`unexpected fetch ${url}`)
     resendCalls.push(JSON.parse(String(init?.body)) as ResendBody)
     return new Response(resendStatus === 200 ? '{"id":"email_1"}' : '{"message":"boom"}', { status: resendStatus })
@@ -204,13 +208,15 @@ describe('report page', () => {
     const res = await call(ingestRequest(form(payload())))
     const { id } = (await res.json()) as { id: string }
     const body = new URLSearchParams({ status: 'fixed' })
-    const upd = await call(new Request(`${BASE}/r/${id}/status`, { method: 'POST', body, headers: { origin: BASE, 'content-type': 'application/x-www-form-urlencoded' } }))
+    const e = testEnv(ACCESS_VARS)
+    const access = await accessHeaders()
+    const upd = await call(new Request(`${BASE}/r/${id}/status`, { method: 'POST', body, headers: { origin: BASE, 'content-type': 'application/x-www-form-urlencoded', ...access } }), e)
     expect(upd.status).toBe(303)
     expect((await row(id))?.status).toBe('fixed')
 
-    const bad = await call(new Request(`${BASE}/r/${id}/status`, { method: 'POST', body: new URLSearchParams({ status: 'deleted' }) }))
+    const bad = await call(new Request(`${BASE}/r/${id}/status`, { method: 'POST', body: new URLSearchParams({ status: 'deleted' }), headers: access }), e)
     expect(bad.status).toBe(400)
-    const csrf = await call(new Request(`${BASE}/r/${id}/status`, { method: 'POST', body, headers: { origin: 'https://evil.test' } }))
+    const csrf = await call(new Request(`${BASE}/r/${id}/status`, { method: 'POST', body, headers: { origin: 'https://evil.test', ...access } }), e)
     expect(csrf.status).toBe(403)
   })
 

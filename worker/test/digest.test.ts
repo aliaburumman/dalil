@@ -1,19 +1,23 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from 'cloudflare:test'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ReportRow } from '../src/env'
+import { resetAccessCache } from '../src/access'
 import worker from '../src/index'
-import { BASE, call, form, ingestRequest, payload, seed, testEnv } from './helpers'
+import { ACCESS_VARS, accessHeaders, BASE, call, certsResponse, form, ingestRequest, payload, seed, testEnv } from './helpers'
 
 type Mail = { to: string[]; subject: string; html: string; attachments?: unknown }
 let mails: Mail[] = []
 let resendStatus = 200
 
 beforeEach(async () => {
+  resetAccessCache()
   await seed()
   mails = []
   resendStatus = 200
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    const certs = await certsResponse(url)
+    if (certs) return certs
     if (url !== 'https://api.resend.com/emails') throw new Error(`unexpected fetch ${url}`)
     mails.push(JSON.parse(String(init?.body)) as Mail)
     return new Response(resendStatus === 200 ? '{"id":"e"}' : '{"message":"boom"}', { status: resendStatus })
@@ -138,15 +142,17 @@ describe('maintenance cron', () => {
 })
 
 describe('reports list page', () => {
-  const ACCESS = { 'cf-access-jwt-assertion': 'x.y.z' }
-  const get = (path: string, headers: Record<string, string> = ACCESS) => call(new Request(`${BASE}${path}`, { headers }))
+  const get = async (path: string, headers?: Record<string, string>) =>
+    call(new Request(`${BASE}${path}`, { headers: headers ?? (await accessHeaders()) }), testEnv(ACCESS_VARS))
 
   it('is 403 without the Access header and 200 with it', async () => {
     for (const path of ['/', '/p/space']) {
       const no = await get(path, {})
       expect(no.status).toBe(403)
       expect(await no.text()).toContain('Protected: configure Cloudflare Access')
-      expect((await get(path)).status).toBe(200)
+      const ok = await get(path)
+      expect(ok.status).toBe(200)
+      expect(await ok.text()).toContain('Signed in as ali@example.com')
     }
     expect((await get('/p/nope')).status).toBe(404)
   })

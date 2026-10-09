@@ -1,7 +1,6 @@
 // Reports list: GET / (all projects) and GET /p/:project. Server-rendered, same CSP approach as page.ts.
-// Requires Cloudflare Access: the request must carry Cf-Access-Jwt-Assertion. NOTE: presence only is
-// checked here (Access strips/sets the header at the edge); verifying the JWT against the team certs
-// is a later hardening step (README).
+// Requires Cloudflare Access: the Access JWT is verified against the team certs (src/access.ts).
+import { accessDenied, verifyAccess } from './access'
 import { refOf } from './email'
 import type { Env, ProjectRow, ReportRow } from './env'
 import { kindLabel, KIND_LABEL } from './steps'
@@ -10,11 +9,6 @@ import { esc, formatAmman, reporterOf, truncate } from './util'
 export const PAGE_SIZE = 50
 const STATUS_FILTERS = ['open', 'all', 'new', 'seen', 'fixed', 'wontfix'] as const
 const SEVERITY_FILTERS = ['blocker', 'annoying', 'minor'] as const
-
-export function requireAccess(req: Request): Response | null {
-  if (req.headers.get('cf-access-jwt-assertion')) return null
-  return new Response('Protected: configure Cloudflare Access for this hostname', { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8' } })
-}
 
 const CSS = `
 :root{--bg:#fff;--fg:#18181b;--muted:#71717a;--card:#f4f4f5;--line:#e4e4e7;--accent:#2563eb;--bad:#dc2626}
@@ -59,8 +53,8 @@ function chips(label: string, base: string, q: Q, key: 'status' | 'severity' | '
 }
 
 export async function handleList(req: Request, env: Env, projectId: string | null): Promise<Response> {
-  const denied = requireAccess(req)
-  if (denied) return denied
+  const user = await verifyAccess(req, env)
+  if (!user) return accessDenied()
 
   const { results: projects } = await env.DB.prepare('SELECT * FROM projects ORDER BY name').all<ProjectRow>()
   const scope = projectId === null ? null : projects.find((p) => p.id === projectId)
@@ -108,6 +102,7 @@ export async function handleList(req: Request, env: Env, projectId: string | nul
   const h: string[] = []
   h.push(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>Reports · ${esc(title)}</title><style>${CSS}</style></head><body><main>`)
   h.push(`<h1>${esc(title)}</h1>`)
+  h.push(`<div class="meta">Signed in as ${esc(user.email)}</div>`)
   h.push(`<div class="meta">${count('new')} new · ${count('seen')} seen · ${count('fixed')} fixed · ${count('wontfix')} won't fix${scope ? '' : ` · ${projects.map((p) => `<a href="/p/${esc(encodeURIComponent(p.id))}">${esc(p.name)}</a>`).join(' · ')}`}</div>`)
   h.push(`<div class="filters">`)
   h.push(chips('Status', base, q, 'status', STATUS_FILTERS.map((s) => [s, s === 'wontfix' ? "won't fix" : s] as [string, string])))
