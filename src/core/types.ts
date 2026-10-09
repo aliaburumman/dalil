@@ -203,6 +203,8 @@ export interface DalilConfig {
   isFailure?: (status: number, json: unknown) => boolean
   /** v0.3: CSS selectors for error toasts; defaults cover sonner, ngx-toastr, react-toastify, notistack */
   toastSelectors?: string[]
+  /** Guaranteed minimum seconds of screen recording kept (default 30, clamped to 15-120); the recording holds up to twice this. */
+  replaySeconds?: number
   bufferMs?: number // default 300_000
   bufferMax?: number // default 300
 }

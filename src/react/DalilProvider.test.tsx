@@ -362,6 +362,13 @@ describe('v0.2: auto-snapshots and replay', () => {
     r2.unmount()
   })
 
+  it('threads replaySeconds to the recorder', async () => {
+    const { unmount } = render(<DalilProvider {...base} enabled replaySeconds={45} />)
+    await waitIdle()
+    expect(rep.startReplay).toHaveBeenCalledWith({ replaySeconds: 45 })
+    unmount()
+  })
+
   it('stops the recorder when the host disables the widget', async () => {
     const { rerender } = render(<DalilProvider {...base} enabled />)
     await waitIdle()

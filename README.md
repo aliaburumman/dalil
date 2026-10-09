@@ -38,6 +38,7 @@ import { DalilProvider } from 'dalil/react'
   accentForeground="var(--primary-foreground)"  // pass with accent; default white
   getContext={() => ({ userId, userName, role, tenant })}
   replay                                        // default true; replay={false} turns the screen recording off
+  replaySeconds={30}                            // guaranteed minimum of recording kept (default 30, 15-120); up to 2x is held
 />
 ```
 
@@ -130,7 +131,7 @@ Vue needs no zone handling. Use `update({ dir: 'rtl' })` / `update({ labels })` 
 ### Plain HTML or server-rendered pages
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/dalil@0.3.0/dist/dalil.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dalil@0.3.1/dist/dalil.global.js"></script>
 <script>
   Dalil.init({ project: 'myapp', publicKey: 'pk_...', endpoint: 'https://dalil.example.com/v1/reports',
                apiOrigins: ['https://api.example.com'], enabled: false })
@@ -139,7 +140,7 @@ Vue needs no zone handling. Use `update({ dir: 'rtl' })` / `update({ labels })` 
 </script>
 ```
 
-Pin the version (`@0.3.0`), not a range, so a CDN update cannot change what runs on your pages. Load it before your own scripts to capture their first requests. CSP: `script-src 'self' https://cdn.jsdelivr.net` and `connect-src 'self' https://dalil.example.com https://img.example.com`. Self-hosting `dist/dalil.global.js` instead removes the `script-src` line. The replay, screenshot and dialog chunks are already inlined in this file.
+Pin the version (`@0.3.1`), not a range, so a CDN update cannot change what runs on your pages. Load it before your own scripts to capture their first requests. CSP: `script-src 'self' https://cdn.jsdelivr.net` and `connect-src 'self' https://dalil.example.com https://img.example.com`. Self-hosting `dist/dalil.global.js` instead removes the `script-src` line. The replay, screenshot and dialog chunks are already inlined in this file.
 
 Try it: `examples/plain-html/index.html` (see [Any web app](#any-web-app-dalilweb-03)).
 
@@ -157,7 +158,7 @@ Optional hooks:
 No React needed. One script tag, or `import { init } from 'dalil/web'`. The UI renders inside a Shadow DOM, so host CSS (Tailwind, Bootstrap, Material) cannot break it.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/dalil@0.3.0/dist/dalil.global.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dalil@0.3.1/dist/dalil.global.js"></script>
 <script>
   Dalil.init({ project: 'myapp', publicKey: 'pk_...', endpoint: 'https://dalil.example.com/v1/reports',
                apiOrigins: ['https://api.example.com'], enabled: false })
@@ -175,7 +176,7 @@ Try it: `examples/plain-html/index.html`. Start the mock API (`node examples/ang
 Two things happen while `enabled` is true, so the reporter doesn't have to remember what happened:
 
 - **Auto-snapshots.** When a request fails, an error is thrown, or an error toast appears, Dalil takes a screenshot about 0.3 to 0.7 s later and keeps the last three in memory. The toast is found generically by watching for `[data-sonner-toast][data-type="error"]` (sonner), and its text is added to the timeline as `Toast: …`. At most one capture per 4 s, never while the tab is hidden, and it stops trying on a page where a capture was slow (over 800 ms). The tester sees them under "Captured automatically" in the dialog and can remove any before sending.
-- **Screen recording.** The last one to two minutes of the page are recorded as a DOM replay ([rrweb](https://github.com/rrweb-io/rrweb)), with failed requests, errors and toasts as jump markers. The recorder is a separate chunk loaded when the browser is idle. The dialog says "Screen recording: last 1m 48s (inputs hidden)" and lets the tester exclude it. Nothing is written to browser storage; if recording or compressing isn't possible (no `CompressionStream`), the report says so instead.
+- **Screen recording.** The page is recorded (it keeps at least the last 30 s, up to 60 s; set `replaySeconds` to change) as a DOM replay ([rrweb](https://github.com/rrweb-io/rrweb)), with failed requests, errors and toasts as jump markers. The recorder is a separate chunk loaded when the browser is idle. The dialog says "Screen recording: last 48s (inputs hidden)" and lets the tester exclude it. Nothing is written to browser storage; if recording or compressing isn't possible (no `CompressionStream`), the report says so instead.
 
 The on-open screenshot also works on pages with cross-origin images: if the first attempt fails, it is retried without them (the images show as gaps).
 

@@ -24,7 +24,7 @@ export default defineConfig([
   },
   {
     entry: { 'web/index': 'src/web/index.ts' },
-    format: ['esm'], dts: true, splitting: true,
+    format: ['esm'], splitting: true,
     ...webBase,
     // dts must not see the alias; it only needs our own types.
     dts: { entry: { 'web/index': 'src/web/index.ts' } },

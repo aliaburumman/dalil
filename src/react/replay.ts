@@ -18,6 +18,15 @@ const META = 4
 const FULL_SNAPSHOT = 2
 const INCREMENTAL = 3
 const MAX_SEGMENTS = 2
+export const DEFAULT_REPLAY_SECONDS = 30
+const MIN_REPLAY_SECONDS = 15
+const MAX_REPLAY_SECONDS = 120
+
+/** Guaranteed minimum seconds of replay; clamped to [15, 120], default 30. The held window is between 1x and 2x this. */
+export function clampReplaySeconds(n: unknown): number {
+  if (typeof n !== 'number' || !Number.isFinite(n)) return DEFAULT_REPLAY_SECONDS
+  return Math.min(MAX_REPLAY_SECONDS, Math.max(MIN_REPLAY_SECONDS, n))
+}
 const MAX_EVENTS = 30_000
 const MAX_EST_BYTES = 15 * 1024 * 1024
 const MAX_PENDING_MARKERS = 100
@@ -146,7 +155,8 @@ async function* serialise(segments: Segment[]): AsyncGenerator<string> {
  * Starts recording and returns the handle. With no CompressionStream (old Safari) the
  * handle is inactive so no memory is spent on a recording that could never be sent.
  */
-export function startReplay(): ReplayHandle {
+export function startReplay(opts: { replaySeconds?: number } = {}): ReplayHandle {
+  const checkoutMs = clampReplaySeconds(opts.replaySeconds) * 1000
   const supported = typeof CompressionStream !== 'undefined'
   let segments: Segment[] = []
   let totalEvents = 0
@@ -246,7 +256,7 @@ export function startReplay(): ReplayHandle {
           recordCanvas: false,
           collectFonts: false,
           sampling: { mousemove: 50, scroll: 150, input: 'last' },
-          checkoutEveryNms: 60_000,
+          checkoutEveryNms: checkoutMs,
         }) ?? undefined
     } catch {
       status = { state: 'stopped', reason: 'Replay could not start' }

@@ -22,7 +22,7 @@ export interface DalilWidgetProps extends DalilConfig {
   accent?: string
   /** Text colour on the accent. Defaults to white; pass it whenever you pass accent. */
   accentForeground?: string
-  /** Record the last 1-2 minutes of the screen (inputs masked) for the report. Default true. */
+  /** Record at least the last 30 s (up to twice `replaySeconds`) of the screen (inputs masked) for the report. Default true. */
   replay?: boolean
   /** Where to inject the stylesheet (default document.head). Pass a ShadowRoot for shadow mounting. */
   styleRoot?: Document | ShadowRoot
@@ -76,6 +76,7 @@ export function DalilWidget(props: DalilWidgetProps) {
     accent,
     accentForeground,
     replay = true,
+    replaySeconds,
     styleRoot,
     ...config
   } = props
@@ -134,7 +135,7 @@ export function DalilWidget(props: DalilWidgetProps) {
       import('./replay')
         .then((m) => {
           if (cancelled) return
-          replayRef.current = m.startReplay()
+          replayRef.current = m.startReplay({ replaySeconds })
         })
         .catch(() => {})
     }
@@ -147,7 +148,7 @@ export function DalilWidget(props: DalilWidgetProps) {
       replayRef.current?.stop()
       replayRef.current = null
     }
-  }, [enabled, replay])
+  }, [enabled, replay, replaySeconds])
 
   const openWidget = useCallback(async () => {
     if (!enabledRef.current || phaseRef.current !== 'idle') return

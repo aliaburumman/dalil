@@ -17,7 +17,7 @@ const rr = vi.hoisted(() => {
 vi.mock('@rrweb/record', () => ({ record: rr.record }))
 
 import { __resetForTests, init, log } from '../core'
-import { startReplay, type ReplayHandle } from './replay'
+import { clampReplaySeconds, startReplay, type ReplayHandle } from './replay'
 
 let t = 1_000
 const meta = () => rr.state.emit!({ type: 4, timestamp: (t += 10), data: {} })
@@ -54,10 +54,27 @@ describe('replay recorder config', () => {
       recordCanvas: false,
       collectFonts: false,
       sampling: { mousemove: 50, scroll: 150, input: 'last' },
-      checkoutEveryNms: 60_000,
+      checkoutEveryNms: 30_000,
     })
     expect((o.maskInputOptions as Record<string, boolean>).password).toBe(true)
     expect(Object.values(o.maskInputOptions as Record<string, boolean>).every(Boolean)).toBe(true)
+  })
+})
+
+describe('replaySeconds', () => {
+  it('clamps to [15, 120], defaulting to 30', () => {
+    expect(clampReplaySeconds(undefined)).toBe(30)
+    expect(clampReplaySeconds(NaN)).toBe(30)
+    expect(clampReplaySeconds(5)).toBe(15)
+    expect(clampReplaySeconds(45)).toBe(45)
+    expect(clampReplaySeconds(999)).toBe(120)
+  })
+  it('sets the checkout interval from replaySeconds', () => {
+    h.stop()
+    startReplay({ replaySeconds: 45 })
+    expect(rr.state.opts!.checkoutEveryNms).toBe(45_000)
+    startReplay({ replaySeconds: 1 })
+    expect(rr.state.opts!.checkoutEveryNms).toBe(15_000)
   })
 })
 
