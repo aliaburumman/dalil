@@ -45,7 +45,11 @@ function tokenFrom(req: Request): string | null {
 }
 
 export async function verifyAccess(req: Request, env: Pick<Env, 'ACCESS_TEAM_DOMAIN' | 'ACCESS_AUD' | 'DEV_NO_AUTH'>): Promise<{ email: string } | null> {
-  if (env.DEV_NO_AUTH === '1') return { email: 'dev@local' }
+  // Local preview only: honoured solely for localhost requests, so a stray var in production does nothing.
+  if (env.DEV_NO_AUTH === '1') {
+    const host = new URL(req.url).hostname
+    if (host === 'localhost' || host === '127.0.0.1') return { email: 'dev@local' }
+  }
   const domain = (env.ACCESS_TEAM_DOMAIN ?? '').trim()
   const aud = (env.ACCESS_AUD ?? '').trim()
   if (!domain || !aud) return null

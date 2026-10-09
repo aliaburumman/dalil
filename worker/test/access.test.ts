@@ -77,9 +77,11 @@ describe('Cloudflare Access verification', () => {
     expect((await post(await jwt())).status).toBe(404) // authenticated, report unknown
   })
 
-  it('DEV_NO_AUTH=1 skips verification, and the production config never sets it', async () => {
-    const dev = await call(new Request(`${BASE}/`), testEnv({ ...ACCESS_VARS, DEV_NO_AUTH: '1' }))
+  it('DEV_NO_AUTH=1 skips verification only on localhost, and the production config never sets it', async () => {
+    const dev = await call(new Request('http://localhost:8799/'), testEnv({ ...ACCESS_VARS, DEV_NO_AUTH: '1' }))
     expect(dev.status).toBe(200)
+    const strayVar = await call(new Request(`${BASE}/`), testEnv({ ...ACCESS_VARS, DEV_NO_AUTH: '1' }))
+    expect(strayVar.status).toBe(403)
     const prod = await call(new Request(`${BASE}/`), testEnv(ACCESS_VARS))
     expect(prod.status).toBe(403)
     const cfg: string = (await import('../wrangler.jsonc?raw')).default
