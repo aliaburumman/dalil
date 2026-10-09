@@ -58,6 +58,33 @@ Apply before deploying the new Worker:
 npx wrangler d1 migrations apply dalil --remote
 ```
 
+## Email modes, digest and reports page
+
+`migrations/0003_digest.sql` adds `projects.email_mode` (`digest` default | `each`), `projects.digest_tz`
+(informational), `reports.digested_at` and `reports.user_saw`. Existing reports are backfilled as
+already digested. Apply it before deploying:
+
+```sh
+npx wrangler d1 migrations apply dalil --remote
+```
+
+- **`digest` (default)**: a new report is stored with `email_status = 'digest'` and nothing is sent,
+  except **blockers**, which email immediately (`sent`/`failed`) as before. A blocker keeps
+  `digested_at = NULL`, so it also appears in the next digest marked "(already emailed)".
+- **`each`**: every report emails immediately (the old behaviour).
+- **Digest schedule**: cron `0 6,18 * * *` UTC = 09:00 and 21:00 Asia/Amman. One email per project
+  with `notify_emails` and at least one report with `digested_at IS NULL` (max 200, then "+N more");
+  no email when there is nothing. `digested_at` is set only for the rows included, and only after
+  Resend accepts the send, so a failure retries at the next run. The daily `17 3 * * *` cron stays
+  maintenance only (retention, retrying `failed` per-report emails) and never touches `digest` rows.
+- Switch a project: `npx wrangler d1 execute dalil --remote --command "UPDATE projects SET email_mode='each' WHERE id='space'"`
+  (back with `'digest'`).
+- **Reports list**: `GET /` (all projects) and `GET /p/:project`, newest first, 50 per page (`?page=`),
+  filters `?status=open|all|new|seen|fixed|wontfix` (default `open` = new+seen), `?severity=`, `?kind=`.
+  Both routes return 403 unless the request carries a non-empty `Cf-Access-Jwt-Assertion` header, so
+  the hostname must be behind Cloudflare Access (see below). Only the header's presence is checked;
+  verifying the JWT against the team's certs is a later hardening step. `/r/:id` is unchanged.
+
 ## Client contract
 
 The widget must send these headers on `POST /v1/reports`:
