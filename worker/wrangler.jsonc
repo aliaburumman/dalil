@@ -18,8 +18,8 @@
     // the app's Overview shows the AUD tag; the team domain is <team name>.cloudflareaccess.com,
     // team name under Settings -> Custom pages). While empty, the reports list and status
     // changes are locked (403).
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": ""
+    "ACCESS_TEAM_DOMAIN": "wandering-heart-5762.cloudflareaccess.com",
+    "ACCESS_AUD": "25938620ddb31058a6c2202de2689204afb37d6342bf65f34c9bb8b0ab93d4a0"
   },
   // Secrets (never in this file): RESEND_API_KEY -> `wrangler secret put RESEND_API_KEY`
 
