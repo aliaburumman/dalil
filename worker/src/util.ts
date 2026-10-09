@@ -72,3 +72,23 @@ export function formatTime(ms: number): string {
 export function partKey(part: string): string {
   return AUTO_PART.test(part) ? `${part}.jpg` : part
 }
+
+/** "2026-10-09 14:05" in Asia/Amman (the digest and list page timezone). */
+export function formatAmman(ms: number): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Amman', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(ms))
+  const g = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
+  return `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:${g('minute')}`
+}
+
+/** userName + tenant out of the stored reporter JSON (ReportContext). */
+export function reporterOf(raw: string | null | undefined): { name: string; tenant: string } {
+  try {
+    const c = JSON.parse(raw ?? '{}') as { userName?: unknown; email?: unknown; tenant?: unknown }
+    const s = (v: unknown) => (typeof v === 'string' ? v : '')
+    return { name: s(c.userName) || s(c.email), tenant: s(c.tenant) }
+  } catch {
+    return { name: '', tenant: '' }
+  }
+}

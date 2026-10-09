@@ -1,10 +1,13 @@
 // Dalil collector — Cloudflare Worker (D1 + R2 + Resend). See README.md and docs/design.md §3.
 import type { Env } from './env'
+import { handleList } from './list'
 import { handleIngest, handlePreflight } from './ingest'
 import { handleAuto, handleImage, handlePage, handleReplay, handleStatus } from './page'
+import { DIGEST_CRON, runDigest } from './digest'
 import { runScheduled } from './scheduled'
 import { json } from './util'
 
+const LIST_PROJECT = /^\/p\/([^/]+)$/
 const REPORT_PAGE = /^\/r\/([^/]+)$/
 const REPORT_IMG = /^\/r\/([^/]+)\/img\/([^/]+)$/
 const REPORT_AUTO = /^\/r\/([^/]+)\/auto\/([0-2])$/
@@ -22,6 +25,8 @@ export default {
         return json({ error: 'method not allowed' }, 405, { allow: 'POST, OPTIONS' })
       }
       let m: RegExpMatchArray | null
+      if (req.method === 'GET' && pathname === '/') return await handleList(req, env, null)
+      if (req.method === 'GET' && (m = pathname.match(LIST_PROJECT))) return await handleList(req, env, decodeURIComponent(m[1]!))
       if (req.method === 'GET' && (m = pathname.match(REPORT_PAGE))) return await handlePage(env, m[1]!)
       if (req.method === 'GET' && (m = pathname.match(REPORT_IMG))) return await handleImage(env, m[1]!, m[2]!)
       if (req.method === 'GET' && (m = pathname.match(REPORT_AUTO))) return await handleAuto(env, m[1]!, m[2]!)
@@ -35,7 +40,8 @@ export default {
     }
   },
 
-  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runScheduled(env))
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Two crons (wrangler.jsonc): the 12-hourly digest, and the daily maintenance (default branch).
+    ctx.waitUntil(controller.cron === DIGEST_CRON ? runDigest(env) : runScheduled(env))
   },
 } satisfies ExportedHandler<Env>

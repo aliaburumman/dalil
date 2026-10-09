@@ -45,8 +45,10 @@
     }
   ],
 
-  // Daily: delete rows past 90 days, retry failed emails.
-  "triggers": { "crons": ["17 3 * * *"] },
+  // "17 3 * * *" daily: delete rows past 90 days, retry failed per-report emails.
+  // "0 6,18 * * *" (09:00 and 21:00 Asia/Amman): send the bug digest. src/index.ts branches on
+  // the cron string, so keep it in sync with DIGEST_CRON in src/digest.ts.
+  "triggers": { "crons": ["17 3 * * *", "0 6,18 * * *"] },
 
   "observability": { "enabled": true }
 }
