@@ -253,8 +253,8 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
     const row = await env.DB.prepare(
       `INSERT INTO reports (id, project_id, seq, title, verdict_kind, verdict_headline, severity,
                             page_url, reporter, request_ids, created_at, r2_prefix, scrubbed,
-                            has_replay, auto_snaps, replay_dropped)
-       SELECT ?1, ?2, COALESCE(MAX(seq), 0) + 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15
+                            has_replay, auto_snaps, replay_dropped, user_saw)
+       SELECT ?1, ?2, COALESCE(MAX(seq), 0) + 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
        FROM reports WHERE project_id = ?2
        RETURNING seq`,
     )
@@ -274,6 +274,7 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
         replayBytes ? 1 : 0,
         autos.length,
         replayDropped ? 1 : 0,
+        typeof payload.verdict.userSaw === 'string' && payload.verdict.userSaw ? payload.verdict.userSaw.slice(0, 500) : null,
       )
       .first<{ seq: number }>()
     if (!row) throw new Error('insert returned no seq')
@@ -318,8 +319,19 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
     has_replay: replayBytes ? 1 : 0,
     auto_snaps: autos.length,
     replay_dropped: replayDropped ? 1 : 0,
+    digested_at: null,
+    user_saw: null,
   }
-  ctx.waitUntil(deliverEmail(env, row, project, { payload, images: allImages }))
+  // Immediate email: project in 'each' mode, or any blocker. A blocker keeps digested_at NULL so
+  // it still shows in the next digest, flagged "already emailed" (email_status 'sent').
+  // Everything else is queued for the digest (email_status 'digest', nothing sent now).
+  if (project.email_mode === 'each' || payload.severity === 'blocker') {
+    ctx.waitUntil(deliverEmail(env, row, project, { payload, images: allImages }))
+  } else if (parseJsonArray(project.notify_emails).length === 0) {
+    await env.DB.prepare(`UPDATE reports SET email_status = 'skipped', digested_at = ? WHERE id = ?`).bind(now, id).run()
+  } else {
+    await env.DB.prepare(`UPDATE reports SET email_status = 'digest' WHERE id = ?`).bind(id).run()
+  }
 
   return json(result, 201, cors)
 }

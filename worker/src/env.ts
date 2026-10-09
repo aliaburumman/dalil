@@ -23,6 +23,9 @@ export interface ProjectRow {
   notify_emails: string
   key_prefix: string
   created_at: number
+  /** 'each' | 'digest' */
+  email_mode: string
+  digest_tz: string | null
 }
 
 export interface ReportRow {
@@ -44,6 +47,8 @@ export interface ReportRow {
   has_replay: number
   auto_snaps: number
   replay_dropped: number
+  digested_at: number | null
+  user_saw: string | null
 }
 
 export const DAY_MS = 86_400_000
