@@ -44,7 +44,8 @@ function tokenFrom(req: Request): string | null {
   return m ? m[1]! : null
 }
 
-export async function verifyAccess(req: Request, env: Pick<Env, 'ACCESS_TEAM_DOMAIN' | 'ACCESS_AUD'>): Promise<{ email: string } | null> {
+export async function verifyAccess(req: Request, env: Pick<Env, 'ACCESS_TEAM_DOMAIN' | 'ACCESS_AUD' | 'DEV_NO_AUTH'>): Promise<{ email: string } | null> {
+  if (env.DEV_NO_AUTH === '1') return { email: 'dev@local' }
   const domain = (env.ACCESS_TEAM_DOMAIN ?? '').trim()
   const aud = (env.ACCESS_AUD ?? '').trim()
   if (!domain || !aud) return null

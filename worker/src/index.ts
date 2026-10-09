@@ -27,7 +27,7 @@ export default {
       let m: RegExpMatchArray | null
       if (req.method === 'GET' && pathname === '/') return await handleList(req, env, null)
       if (req.method === 'GET' && (m = pathname.match(LIST_PROJECT))) return await handleList(req, env, decodeURIComponent(m[1]!))
-      if (req.method === 'GET' && (m = pathname.match(REPORT_PAGE))) return await handlePage(env, m[1]!)
+      if (req.method === 'GET' && (m = pathname.match(REPORT_PAGE))) return await handlePage(env, m[1]!, req)
       if (req.method === 'GET' && (m = pathname.match(REPORT_IMG))) return await handleImage(env, m[1]!, m[2]!)
       if (req.method === 'GET' && (m = pathname.match(REPORT_AUTO))) return await handleAuto(env, m[1]!, m[2]!)
       if (req.method === 'GET' && (m = pathname.match(REPORT_REPLAY))) return await handleReplay(env, m[1]!)

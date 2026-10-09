@@ -175,9 +175,9 @@ describe('reports list page', () => {
     expect(p1).toContain('/r/x1')
     expect(p1).not.toContain('/r/f1') // fixed hidden by default (open)
     expect(p1.indexOf('/r/x1')).toBeLessThan(p1.indexOf('/r/n59'))
-    expect(p1.match(/<tr><td><a href="\/r\//g)).toHaveLength(50)
+    expect(p1.match(/<article class="card/g)).toHaveLength(50)
     const p2 = await (await get('/p/space?page=2')).text()
-    expect(p2.match(/<tr><td><a href="\/r\//g)).toHaveLength(11)
+    expect(p2.match(/<article class="card/g)).toHaveLength(11)
     expect(await (await get('/p/space?status=fixed')).text()).toContain('/r/f1')
     const all = await (await get('/?status=all&severity=blocker')).text()
     expect(all).toContain('/r/f1')
@@ -186,7 +186,32 @@ describe('reports list page', () => {
     expect(kind).toContain('/r/f1')
     expect(kind).not.toContain('/r/n5"')
     expect(p1).toContain('SPACE-1')
-    expect(p1).toContain('Ali · BVB')
+    expect(p1).toContain('<span>Ali</span>')
+    expect(p1).toContain('<span>BVB</span>')
+  })
+
+  it('renders the inbox: tabs with counts, stats, day headers, status forms, nonce script', async () => {
+    await seedMany()
+    const res = await get('/p/space')
+    const html = await res.text()
+    expect(html).toContain('class="tabs"')
+    expect(html).toContain('Won&#39;t fix')
+    expect(html).toContain('Open by area')
+    expect(html).toContain('class="day"')
+    expect(html).toContain('action="/r/x1/status"')
+    expect(html).toContain('name="next" value="/p/space"')
+    expect(html).not.toMatch(/onerror=/)
+    const csp = res.headers.get('content-security-policy') ?? ''
+    const nonce = /script-src 'nonce-([0-9a-f]+)'/.exec(csp)?.[1]
+    expect(nonce).toBeTruthy()
+    expect(html).toContain(`<script nonce="${nonce}">`)
+    expect(csp).toContain("img-src 'self'")
+    expect(html).toContain('/r/n59/auto/0') // auto_snaps > 0 uses the first auto snapshot
+  })
+
+  it('shows an empty state', async () => {
+    const html = await (await get('/p/space?status=wontfix')).text()
+    expect(html).toContain('Reports from the bug button appear here.')
   })
 
   it('escapes titles and ignores junk query values', async () => {

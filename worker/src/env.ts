@@ -13,6 +13,8 @@ export interface Env {
   ACCESS_TEAM_DOMAIN?: string
   /** Cloudflare Access application AUD tag */
   ACCESS_AUD?: string
+  /** DEV ONLY: "1" skips Access verification. Set only via `wrangler dev --var DEV_NO_AUTH:1`; never in wrangler.jsonc (a test enforces it). */
+  DEV_NO_AUTH?: string
   /** secret: `wrangler secret put RESEND_API_KEY` */
   RESEND_API_KEY?: string
   /** static assets (vendored rrweb-player), see wrangler.jsonc "assets" */
