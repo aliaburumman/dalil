@@ -50,3 +50,4 @@ jobs:
         working-directory: worker
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e:copy
+      - run: npm run e2e:ado

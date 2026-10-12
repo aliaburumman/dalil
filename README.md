@@ -221,6 +221,10 @@ Dalil.init({
 
 **`playerUrl`.** The replay file embeds the rrweb player, which Dalil loads from `dist/assets/` next to the widget script (the npm build and `dalil.global.js` both ship it). If your bundler moves the widget somewhere that folder is not served, or a strict CSP blocks the fetch, host `rrweb-player.2.1.7.js` and `.css` yourself and set `playerUrl` to that folder. If the player cannot be loaded the Bug still gets created, with the raw `replay-<time>.json.gz` attached instead.
 
+### Try the Azure DevOps mode
+
+A hosted test page lets you try the no-server mode with your own org and a personal access token, with nothing to install: <https://aliaburumman.github.io/dalil/ado-test/>. It is built from `examples/ado-direct/` plus the current widget build and deployed by `.github/workflows/pages.yml` on every push to `main` that touches the widget. One-time repo setting: **Settings -> Pages -> Source: GitHub Actions**. Run the same page locally with `npm run build && npm run build:ado-site` (output in `site/ado-test/`).
+
 ## Content-Security-Policy
 
 If the host page sends a `Content-Security-Policy`, add the collector origin to `connect-src`, for example `connect-src 'self' https://dalil.example.com`. Without it the browser blocks the upload; dalil saves the report on the device, retries it on the next page load, and logs a `[dalil] Could not reach the collector...` error in the console.

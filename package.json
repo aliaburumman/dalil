@@ -27,7 +27,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "demo": "vite demo",
-    "e2e:copy": "node scripts/e2e-copy.mjs"
+    "e2e:copy": "node scripts/e2e-copy.mjs",
+    "build:ado-site": "node scripts/build-ado-site.mjs",
+    "e2e:ado": "npm run build:ado-site && node scripts/e2e-ado.mjs"
   },
   "peerDependencies": {
     "react": ">=18",
