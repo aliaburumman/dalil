@@ -1,12 +1,8 @@
 import { AUTO_PART } from './limits'
+import { esc, pathOf, truncate } from '../../shared/text'
 
-const ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+export { esc, pathOf, truncate }
 
-/** Escape any value for HTML text or a double/single-quoted attribute. */
-export function esc(value: unknown): string {
-  if (value === null || value === undefined) return ''
-  return String(value).replace(/[&<>"']/g, (c) => ESC[c] ?? c)
-}
 
 export function parseJsonArray(raw: string | null | undefined): string[] {
   if (!raw) return []
@@ -15,21 +11,6 @@ export function parseJsonArray(raw: string | null | undefined): string[] {
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
   } catch {
     return []
-  }
-}
-
-export function truncate(s: string, max: number): string {
-  const one = s.replace(/\s+/g, ' ').trim()
-  return one.length > max ? `${one.slice(0, max - 1)}…` : one
-}
-
-/** Path (+ search) of an absolute or relative URL; the input unchanged if unparsable. */
-export function pathOf(url: string): string {
-  try {
-    const u = new URL(url, 'http://x')
-    return u.pathname + u.search
-  } catch {
-    return url
   }
 }
 

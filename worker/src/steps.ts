@@ -1,35 +1,10 @@
 // Human-readable rendering of payload events, shared by the email and the report page.
 // Every user-supplied string goes through esc().
-import type { DalilEvent, ReportPayload, RequestEvent, VerdictKind } from './payload'
+import type { DalilEvent, ReportPayload, RequestEvent } from './payload'
+import { failedRequestTitle, isFailedRequest, KIND_LABEL, kindLabel, statusText } from '../../shared/steps'
 import { esc, pathOf } from './util'
 
-export const KIND_LABEL: Record<VerdictKind, string> = {
-  network: 'Network',
-  backend: 'Backend',
-  permission: 'Permission',
-  validation: 'Validation',
-  frontend: 'Frontend',
-  ux: 'UX',
-}
-
-export function kindLabel(kind: string | null | undefined): string {
-  return (kind && KIND_LABEL[kind as VerdictKind]) || 'Unknown'
-}
-
-export function isFailedRequest(e: DalilEvent): e is RequestEvent {
-  return (
-    e.type === 'request' &&
-    !e.refreshed &&
-    (e.outcome === 'http_error' || e.outcome === 'app_error' || e.outcome === 'network' || e.outcome === 'timeout')
-  )
-}
-
-function statusText(e: RequestEvent): string {
-  if (e.outcome === 'timeout') return 'timeout'
-  if (e.outcome === 'network' || e.status === 0) return 'network error'
-  if (e.outcome === 'app_error') return `${e.status} success:false${e.appCode ? ` (${e.appCode})` : ''}`
-  return String(e.status)
-}
+export { failedRequestTitle, isFailedRequest, KIND_LABEL, kindLabel }
 
 /** One HTML line for an event, or null when it is not worth a step (ok requests, info logs). */
 export function stepHtml(e: DalilEvent): string | null {
@@ -67,10 +42,6 @@ export function timelineHtml(e: DalilEvent): string {
 
 export function failedRequests(p: ReportPayload): RequestEvent[] {
   return p.events.filter(isFailedRequest)
-}
-
-export function failedRequestTitle(e: RequestEvent): string {
-  return `${e.method.toUpperCase()} ${pathOf(e.url)} → ${statusText(e)}`
 }
 
 export function relTime(eventT: number, createdAt: number): string {
