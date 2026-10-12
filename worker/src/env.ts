@@ -13,6 +13,12 @@ export interface Env {
   ACCESS_TEAM_DOMAIN?: string
   /** Cloudflare Access application AUD tag */
   ACCESS_AUD?: string
+  /** IANA timezone for dates on the list page and in the digest (default Asia/Amman) */
+  TZ?: string
+  /** Cron expression that triggers the digest; must equal one of wrangler "triggers.crons" (default "0 6,18 * * *") */
+  DIGEST_CRON?: string
+  /** "0" disables all outbound email (default "1") */
+  EMAIL_ENABLED?: string
   /** DEV ONLY: "1" skips Access verification. Set only via `wrangler dev --var DEV_NO_AUTH:1`; never in wrangler.jsonc (a test enforces it). */
   DEV_NO_AUTH?: string
   /** secret: `wrangler secret put RESEND_API_KEY` */

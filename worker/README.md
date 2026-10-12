@@ -72,10 +72,10 @@ npx wrangler d1 migrations apply dalil --remote
   except **blockers**, which email immediately (`sent`/`failed`) as before. A blocker keeps
   `digested_at = NULL`, so it also appears in the next digest marked "(already emailed)".
 - **`each`**: every report emails immediately (the old behaviour).
-- **Digest schedule**: cron `0 6,18 * * *` UTC = 09:00 and 21:00 Asia/Amman. One email per project
+- **Digest schedule**: cron `0 6,18 * * *` UTC = 09:00 and 21:00 in Asia/Amman (UTC+3, no DST). Cron expressions are UTC, so a DST zone drifts 1 h twice a year. One email per project
   with `notify_emails` and at least one report with `digested_at IS NULL` (max 200, then "+N more");
   no email when there is nothing. `digested_at` is set only for the rows included, and only after
-  Resend accepts the send, so a failure retries at the next run. The daily `17 3 * * *` cron stays
+  Resend accepts the send (or email is disabled, see `EMAIL_ENABLED`), so a failure retries at the next run. The daily `17 3 * * *` cron stays
   maintenance only (retention, retrying `failed` per-report emails) and never touches `digest` rows.
 - Switch a project: `npx wrangler d1 execute dalil --remote --command "UPDATE projects SET email_mode='each' WHERE id='space'"`
   (back with `'digest'`).
@@ -87,6 +87,31 @@ npx wrangler d1 migrations apply dalil --remote
   carries a valid Cloudflare Access JWT (see "Verifying the Access JWT" below); the page header shows
   the signed-in email. `POST /r/:id/status` also rejects a cross-origin `Origin` header.
   The route table is `src/routes.ts`.
+
+## Second deployment (work)
+
+The same code deploys to a second Cloudflare account with no fork; only the config differs.
+
+- **Config**: `wrangler.work.example.jsonc` is a complete, standalone template (wrangler configs do not
+  inherit) with placeholder IDs. Keep the real file in a **private work repo** (default
+  `../../dalil-work/wrangler.work.jsonc`, or point `DALIL_WORK_CONFIG` at it) and never commit real IDs
+  here. Wrangler resolves `main`, `assets.directory` and `migrations_dir` relative to the config file,
+  so in the private copy point them at this checkout (see the comment in the template).
+- **Commands** (`scripts/work.mjs` resolves the config and fails with a clear message if it is missing):
+  `npm run work:deploy`, `npm run work:migrate` (D1 `dalil` `--remote`), `npm run work:secret -- RESEND_API_KEY`,
+  `npm run work:tail`. Extra args pass through, e.g. `npm run work:deploy -- --dry-run`.
+- **Vars** (all optional, in `vars`):
+
+| Var | Default | Meaning |
+|---|---|---|
+| `TZ` | `Asia/Amman` | IANA zone for dates on the list page, report page and digest (label shows the last segment, e.g. "London") |
+| `DIGEST_CRON` | `0 6,18 * * *` | Cron string that triggers the digest; must equal that entry in `triggers.crons`. Crons are UTC, so a DST zone drifts 1 h |
+| `EMAIL_ENABLED` | `1` | `0` disables all outbound email: reports are stored with `email_status = 'skipped'`, and the digest marks rows `digested_at` so they do not pile up. With `1` and no `RESEND_API_KEY`, sends are `failed` as before |
+
+- **Access**: use a self-hosted Access application with **Microsoft Entra ID** as the identity provider.
+  It must **bypass** `/v1/reports*` (ingest from tester browsers) and `/assets/*` (player files); every
+  other path stays behind Access, and the Worker still verifies the JWT (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`).
+- Use a distinct `ratelimits[0].namespace_id`, D1 database and R2 bucket in the work account.
 
 ## Client contract
 

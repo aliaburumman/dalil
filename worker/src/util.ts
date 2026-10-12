@@ -73,13 +73,33 @@ export function partKey(part: string): string {
   return AUTO_PART.test(part) ? `${part}.jpg` : part
 }
 
-/** "2026-10-09 14:05" in Asia/Amman (the digest and list page timezone). */
-export function formatAmman(ms: number): string {
+/** Default display timezone; override with the TZ var. */
+export const DEFAULT_TZ = 'Asia/Amman'
+
+/** "2026-10-09 14:05" in the given IANA timezone (the digest and list page timezone). */
+export function formatLocal(ms: number, tz: string): string {
   const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Amman', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(new Date(ms))
   const g = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
   return `${g('year')}-${g('month')}-${g('day')} ${g('hour')}:${g('minute')}`
+}
+
+/** "Amman" from "Asia/Amman"; "Buenos Aires" from "America/Argentina/Buenos_Aires". */
+export function zoneLabel(tz: string): string {
+  return (tz.split('/').pop() ?? tz).replace(/_/g, ' ')
+}
+
+/** Configured display timezone, falling back to the default when unset or invalid. */
+export function tzOf(env: { TZ?: string }): string {
+  const tz = env.TZ?.trim()
+  if (!tz) return DEFAULT_TZ
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: tz })
+    return tz
+  } catch {
+    return DEFAULT_TZ
+  }
 }
 
 /** userName + tenant out of the stored reporter JSON (ReportContext). */

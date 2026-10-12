@@ -160,6 +160,11 @@ export async function sendReportEmail(
 /** Load report.json + images from R2, send, record email_status. Used by ingest and cron. */
 export async function deliverEmail(env: Env, row: ReportRow, project: ProjectRow, preloaded?: { payload: ReportPayload; images: StoredImage[] }): Promise<SendOutcome> {
   let outcome: SendOutcome
+  if (env.EMAIL_ENABLED === '0') {
+    outcome = { status: 'skipped', detail: 'email disabled' }
+    await env.DB.prepare('UPDATE reports SET email_status = ? WHERE id = ?').bind(outcome.status, row.id).run()
+    return outcome
+  }
   try {
     const data = preloaded ?? (await loadStored(env, row))
     outcome = data ? await sendReportEmail(env, project, row, data.payload, data.images) : { status: 'failed', detail: 'report.json missing in R2' }

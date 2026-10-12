@@ -4,14 +4,14 @@ import { refOf } from './email'
 import type { Env, ProjectRow, ReportRow } from './env'
 import { kindLabel, KIND_LABEL } from './steps'
 import { KIND_COLOR, BASE_CSS, htmlHeaders, icon, relAgo, SEV_LABEL, statusLabel, topbar } from './ui'
-import { esc, formatAmman, pathOf, reporterOf, truncate } from './util'
+import { esc, formatLocal, pathOf, reporterOf, tzOf, truncate, zoneLabel } from './util'
 
-const ammanDay = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Amman' }).format(new Date(ms))
-const dayLabel = (ms: number, now: number) => {
-  const d = ammanDay(ms)
-  if (d === ammanDay(now)) return 'Today'
-  if (d === ammanDay(now - 86_400_000)) return 'Yesterday'
-  return new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Amman', weekday: 'long', day: 'numeric', month: 'short' }).format(new Date(ms))
+const localDay = (ms: number, tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date(ms))
+const dayLabel = (ms: number, now: number, tz: string) => {
+  const d = localDay(ms, tz)
+  if (d === localDay(now, tz)) return 'Today'
+  if (d === localDay(now - 86_400_000, tz)) return 'Yesterday'
+  return new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'short' }).format(new Date(ms))
 }
 
 export const PAGE_SIZE = 50
@@ -107,7 +107,7 @@ function chipLinks(base: string, q: Q, key: 'severity' | 'kind', options: readon
   return options.map(([v, text]) => `<a class="${q[key] === v ? 'on' : ''}" href="${esc(href(base, q, { [key]: v, page: 1 }))}">${esc(text)}</a>`).join('')
 }
 
-function card(r: ReportRow, ref: string, now: number, back: string): string {
+function card(r: ReportRow, ref: string, now: number, back: string, tz: string): string {
   const who = reporterOf(r.reporter)
   const link = `/r/${esc(r.id)}`
   const sev = r.severity ?? 'minor'
@@ -121,7 +121,7 @@ function card(r: ReportRow, ref: string, now: number, back: string): string {
       : `<form method="post" action="${link}/status"><input type="hidden" name="status" value="${to}"><input type="hidden" name="next" value="${esc(back)}"><button class="btn" type="submit">${text}</button></form>`
   const bits = [
     `<span class="ref">${esc(ref)}</span>`,
-    `<span title="${esc(formatAmman(r.created_at))} (Asia/Amman)">${esc(relAgo(r.created_at, now))}</span>`,
+    `<span title="${esc(formatLocal(r.created_at, tz))} (${esc(tz)})">${esc(relAgo(r.created_at, now))}</span>`,
     who.name ? `<span>${esc(who.name)}</span>` : '',
     who.tenant ? `<span>${esc(who.tenant)}</span>` : '',
     page ? `<span class="pg" title="${esc(page)}">${esc(truncate(page, 80))}</span>` : '',
@@ -135,6 +135,7 @@ export async function handleList(req: Request, env: Env, projectId: string | nul
   const { results: projects } = await env.DB.prepare('SELECT * FROM projects ORDER BY name').all<ProjectRow>()
   const scope = projectId === null ? null : projects.find((p) => p.id === projectId)
   if (projectId !== null && !scope) return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain' } })
+  const tz = tzOf(env)
   const byId = new Map(projects.map((p) => [p.id, p]))
   const url = new URL(req.url)
   const q = parseQuery(url.searchParams)
@@ -213,13 +214,13 @@ export async function handleList(req: Request, env: Env, projectId: string | nul
   } else {
     let lastDay = ''
     for (const r of rows) {
-      const d = ammanDay(r.created_at)
+      const d = localDay(r.created_at, tz)
       if (d !== lastDay) {
-        h.push(`<h2 class="day">${esc(dayLabel(r.created_at, now))}</h2>`)
+        h.push(`<h2 class="day">${esc(dayLabel(r.created_at, now, tz))}</h2>`)
         lastDay = d
       }
       const proj = byId.get(r.project_id)
-      h.push(card(r, proj ? refOf(proj, r.seq) : `#${r.seq}`, now, back))
+      h.push(card(r, proj ? refOf(proj, r.seq) : `#${r.seq}`, now, back, tz))
     }
   }
   h.push(`<div class="pager">${page > 1 ? `<a href="${esc(href(base, q, { page: page - 1 }))}">Newer</a>` : ''}${page < pages ? `<a href="${esc(href(base, q, { page: page + 1 }))}">Older</a>` : ''}</div>`)

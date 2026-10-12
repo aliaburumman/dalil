@@ -1,7 +1,7 @@
 // Dalil collector — Cloudflare Worker (D1 + R2 + Resend). See README.md and docs/design.md §3.
 import type { Env } from './env'
 import { accessDenied, verifyAccess } from './access'
-import { DIGEST_CRON, runDigest } from './digest'
+import { DEFAULT_DIGEST_CRON, runDigest } from './digest'
 import { ROUTES } from './routes'
 import { runScheduled } from './scheduled'
 import { json } from './util'
@@ -35,6 +35,8 @@ export default {
 
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Two crons (wrangler.jsonc): the 12-hourly digest, and the daily maintenance (default branch).
-    ctx.waitUntil(controller.cron === DIGEST_CRON ? runDigest(env) : runScheduled(env))
+    // Cron expressions are UTC: in a DST zone the local digest time drifts 1 h twice a year.
+    // env.DIGEST_CRON must match the digest entry in wrangler "triggers.crons".
+    ctx.waitUntil(controller.cron === (env.DIGEST_CRON ?? DEFAULT_DIGEST_CRON) ? runDigest(env) : runScheduled(env))
   },
 } satisfies ExportedHandler<Env>

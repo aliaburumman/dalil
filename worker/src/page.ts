@@ -9,7 +9,7 @@ import { buildShare } from './share'
 import type { ProjectRow } from './env'
 import { failedRequests, failedRequestTitle, isFailedRequest, kindLabel, relTime, timelineHtml } from './steps'
 import { BASE_CSS, htmlHeaders, icon, KIND_COLOR, relAgo, safeNext, SEV_LABEL, statusLabel, topbar } from './ui'
-import { esc, formatAmman, formatTime, partKey } from './util'
+import { esc, formatLocal, formatTime, partKey, tzOf, zoneLabel } from './util'
 
 export const STATUSES = ['new', 'seen', 'fixed', 'wontfix'] as const
 const ID = /^[0-9a-f-]{36}$/
@@ -241,7 +241,7 @@ export async function handlePage(env: Env, id: string, user: { email: string }):
     cells.push(cell('Tenant', esc(c.tenant || '-')))
     cells.push(cell('Version', esc(c.appVersion || '-')))
     cells.push(cell('Page', `<span class="mono">${esc(p.env?.url)}</span>`, 'w'))
-    cells.push(cell('When', `<span title="${esc(formatTime(row.created_at))}">${esc(formatAmman(row.created_at))} (Amman) · ${esc(relAgo(row.created_at, now))}</span>`, 'w'))
+    cells.push(cell('When', `<span title="${esc(formatTime(row.created_at))}">${esc(formatLocal(row.created_at, tzOf(env)))} (${esc(zoneLabel(tzOf(env)))}) · ${esc(relAgo(row.created_at, now))}</span>`, 'w'))
     if (p.env) cells.push(cell('Browser', `${esc(p.env.userAgent)} · ${esc(p.env.language)} · ${esc(p.env.timezone)} · ${esc(p.env.viewport?.w)}×${esc(p.env.viewport?.h)}@${esc(p.env.viewport?.dpr)}${p.env.online === false ? ' · offline' : ''}`, 'w'))
     h.push(`<section class="grid">${cells.join('')}</section>`)
     if (p.expected) h.push(`<div class="saw exp"><small>Expected</small>${esc(p.expected)}</div>`)
