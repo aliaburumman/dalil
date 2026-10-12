@@ -186,6 +186,41 @@ Hidden: every input and textarea value, including passwords (masked as `***`); t
 
 **Not hidden:** visible page text (tables, names, amounts, a combobox's chosen label). That is the point: the developer sees what the tester saw. Put `data-dalil-mask` on anything sensitive that is shown as plain text, or set `replay={false}`. Pages that produce an unusually heavy recording (over about 30,000 events or 15 MB) stop recording and say so in the report.
 
+## Azure DevOps (no server)
+
+No collector, no Cloudflare. Each tester files the Bug as themselves, straight from the browser to Azure DevOps.
+
+```ts
+Dalil.init({
+  project: 'web-app',
+  destination: {
+    type: 'azure-devops',
+    org: 'acme',
+    project: 'Web',
+    // workItemType: 'Bug',                          // default
+    // bodyField: 'System.Description',              // Basic process (default: Microsoft.VSTS.TCM.ReproSteps)
+    // areaPath: 'Web\\QA',
+    // tags: ['beta'],                                // 'dalil' is always added
+  },
+  // playerUrl: 'https://cdn.example.com/dalil/assets/', // optional, see below
+  enabled: true,
+})
+```
+
+`endpoint` and `publicKey` are not needed in this mode. The default (`destination: { type: 'collector' }`) is unchanged.
+
+**Token.** The first time, Dalil asks the tester for a personal access token and checks it against the project. Create it at `https://dev.azure.com/{org}/_usersSettings/tokens` with only the **Work Items (Read & write)** scope and an expiry of **30 days or less**. Never put a shared token in the app.
+
+**What lands in the Bug.** The title, a short summary (verdict, last steps, the failing request, page and time), the screenshot and automatic captures inline and as attachments, tags `dalil` plus yours, and `replay-<time>.html`: a self-contained replay that plays offline (download it from the Bug, open it, and it jumps to the error). Nothing else is sent: no curl, headers, bodies or context. Secrets (JWT, Bearer) are scrubbed in the browser first.
+
+**If it fails.** An expired or revoked token, a missing permission, or an unreachable org never loses the report: the tester can update the token, try again, copy the report, or download the evidence as a `.zip` (report, images, replay, `report.json`).
+
+**Security note.** The token is stored in this browser only (IndexedDB database `dalil-ado`), is sent only to `https://dev.azure.com/<org>/`, and never appears in a report, replay or the zip. Any script that runs on your page (an XSS bug) could read it, so keep the scope minimal, the expiry short, and tell testers about **Forget token** (in the connect view and in the dialog). If IndexedDB is unavailable the token is kept for the page session only.
+
+**Process notes.** Projects on the *Basic* process have no Repro Steps field: set `bodyField: 'System.Description'`. Azure DevOps must allow browser (CORS) calls from your app's origin; if the org name is wrong or a call is blocked, the browser reports both the same way ("Couldn't reach Azure DevOps org ...").
+
+**`playerUrl`.** The replay file embeds the rrweb player, which Dalil loads from `dist/assets/` next to the widget script (the npm build and `dalil.global.js` both ship it). If your bundler moves the widget somewhere that folder is not served, or a strict CSP blocks the fetch, host `rrweb-player.2.1.7.js` and `.css` yourself and set `playerUrl` to that folder. If the player cannot be loaded the Bug still gets created, with the raw `replay-<time>.json.gz` attached instead.
+
 ## Content-Security-Policy
 
 If the host page sends a `Content-Security-Policy`, add the collector origin to `connect-src`, for example `connect-src 'self' https://dalil.example.com`. Without it the browser blocks the upload; dalil saves the report on the device, retries it on the next page load, and logs a `[dalil] Could not reach the collector...` error in the console.

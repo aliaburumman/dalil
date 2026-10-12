@@ -45,6 +45,8 @@ export interface AdoExtras {
   failedMedia?: number
   /** replay link block; `url` is the evidence URL with ?play=failure */
   replay?: { url: string; durationMs: number } | null
+  /** extra HTML appended at the end of the body (already escaped by the caller) */
+  extraHtml?: string
 }
 
 export interface CreateOptions {
@@ -52,6 +54,8 @@ export interface CreateOptions {
   extras?: AdoExtras
   tags?: string[]
   areaPath?: string
+  /** files already uploaded, linked as AttachedFile relations in the same create call */
+  attachments?: { url: string; comment?: string }[]
 }
 
 /** 'Basic ' + base64(utf8(':' + pat)). TextEncoder first, so non-Latin1 never throws. */
@@ -127,6 +131,7 @@ export function bodyHtml(share: Share, x: AdoExtras): string {
     const thumb = media[0] ? `<img src="${esc(media[0].url)}" alt="" width="320"><br>` : ''
     html += `<p><a href="${esc(x.replay.url)}">${thumb}▶ Watch replay (${formatDuration(x.replay.durationMs)}), jumps to the error</a></p>`
   }
+  if (x.extraHtml) html += x.extraHtml
   return html
 }
 
@@ -145,6 +150,9 @@ export async function createWorkItem(ctx: AdoContext, share: Share, opts: Create
   if (opts.hyperlink) patch.push({ op: 'add', path: '/relations/-', value: { rel: 'Hyperlink', url: opts.hyperlink, attributes: { comment: 'Dalil report' } } })
   for (const m of extras.media ?? []) {
     patch.push({ op: 'add', path: '/relations/-', value: { rel: 'AttachedFile', url: m.url, attributes: { comment: 'Dalil screenshot' } } })
+  }
+  for (const a of opts.attachments ?? []) {
+    patch.push({ op: 'add', path: '/relations/-', value: { rel: 'AttachedFile', url: a.url, attributes: { comment: a.comment ?? 'Dalil attachment' } } })
   }
   let res: Response
   try {

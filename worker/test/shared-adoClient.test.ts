@@ -39,6 +39,21 @@ describe('createWorkItem', () => {
   })
 })
 
+describe('createWorkItem attachments and extraHtml', () => {
+  it('links attachments in the same create call and appends extraHtml after the media', async () => {
+    const { f, ctx } = mk(() => Response.json({ id: 7 }))
+    await createWorkItem(ctx, share, {
+      attachments: [{ url: 'https://dev.azure.com/o/_apis/wit/attachments/r', comment: 'Dalil replay' }],
+      extras: { media: [{ url: 'https://dev.azure.com/o/_apis/wit/attachments/i', kind: 'screenshot', label: '' }], extraHtml: '<p>END</p>' },
+    })
+    expect(f).toHaveBeenCalledTimes(1)
+    const patch = JSON.parse(String(f.mock.calls[0]![1]!.body)) as Array<{ path: string; value: any }>
+    const rel = patch.filter((p) => p.path === '/relations/-').map((p) => p.value)
+    expect(rel.at(-1)).toEqual({ rel: 'AttachedFile', url: 'https://dev.azure.com/o/_apis/wit/attachments/r', attributes: { comment: 'Dalil replay' } })
+    expect(String(patch[1]!.value).endsWith('<p>END</p>')).toBe(true)
+  })
+})
+
 describe('listWorkItemTypes', () => {
   it('200 returns names', async () => {
     const { f, ctx } = mk(() => Response.json({ value: [{ name: 'Bug' }, { name: 'Task' }] }))

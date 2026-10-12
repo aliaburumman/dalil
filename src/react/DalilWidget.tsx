@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { init, onOpen, snapshot, type DalilConfig, type SubmitResult } from '../core'
 import { Button } from './Button'
-import type { DialogProps, DialogSnapshot } from './Dialog'
-import { defaultLabels, type Labels } from './labels'
+import type { AdoSent, DialogProps, DialogSnapshot } from './Dialog'
+import type { ConnectAdoProps } from './ConnectAdo'
+import { defaultLabels, pick, type Labels } from './labels'
 import { ensureStyles, type DalilTheme } from './styles'
 import type { ReplayHandle } from './replay'
 import { SentPanel } from './SentPanel'
@@ -69,8 +70,10 @@ type State =
       screenshot: { dataUrl?: string; error?: string }
       autoSnaps: ReturnType<typeof import('./autosnap').getAutoSnaps>
       replay: ReplayHandle | null
+      ado?: DialogProps['ado']
     }
-  | { phase: 'sent'; result: SubmitResult }
+  | { phase: 'connect'; Connect: (p: ConnectAdoProps) => ReactNode }
+  | { phase: 'sent'; result: SubmitResult; ado?: AdoSent }
 
 export function DalilWidget(props: DalilWidgetProps) {
   const {
@@ -88,6 +91,12 @@ export function DalilWidget(props: DalilWidgetProps) {
     styleRoot,
     ...config
   } = props
+  const adoDest = config.destination?.type === 'azure-devops' ? config.destination : null
+  const adoDestRef = useRef(adoDest)
+  adoDestRef.current = adoDest
+  const playerUrlRef = useRef(config.playerUrl)
+  playerUrlRef.current = config.playerUrl
+  const adoPat = useRef<string | null>(null)
 
   const appearance = { theme, accent, accentForeground }
   const [state, setState] = useState<State>({ phase: 'idle' })
@@ -100,6 +109,8 @@ export function DalilWidget(props: DalilWidgetProps) {
   getContextRef.current = config.getContext
 
   const labels = useMemo<Labels>(() => ({ ...defaultLabels, ...labelOverrides }), [labelOverrides])
+  const labelsRef = useRef(labels)
+  labelsRef.current = labels
   const getContext = useCallback(() => getContextRef.current?.() ?? {}, [])
 
   // init is idempotent; call once with a getContext that always reads the latest prop.
@@ -162,6 +173,30 @@ export function DalilWidget(props: DalilWidgetProps) {
     if (!enabledRef.current || phaseRef.current !== 'idle') return
     phaseRef.current = 'capturing'
     setState({ phase: 'capturing' })
+    const dest = adoDestRef.current
+    if (dest) {
+      // Azure DevOps mode: a token for this org is needed before the dialog.
+      let ok = false
+      try {
+        if (dest.org && dest.project) {
+          const [tok, conn] = await Promise.all([import('../core/adoToken'), import('./ConnectAdo')])
+          adoPat.current = await tok.getToken(dest.org)
+          if (!adoPat.current) {
+            phaseRef.current = 'connect'
+            setState({ phase: 'connect', Connect: conn.ConnectAdo })
+            return
+          }
+          ok = true
+        } else setToast(pick(labelsRef.current, 'adoBadConfig'))
+      } catch {
+        /* chunk failed to load */
+      }
+      if (!ok) {
+        phaseRef.current = 'idle'
+        setState({ phase: 'idle' })
+        return
+      }
+    }
     const openedSnap = snapshot()
     try {
       const [dialogMod, shotMod] = await preload()
@@ -178,6 +213,7 @@ export function DalilWidget(props: DalilWidgetProps) {
         screenshot: shot,
         autoSnaps: autoModRef.current?.getAutoSnaps() ?? [],
         replay: replayRef.current,
+        ado: dest && adoPat.current ? { dest, pat: adoPat.current, playerUrl: playerUrlRef.current } : undefined,
       })
     } catch {
       // Chunk failed to load (offline / deploy race); nothing to show.
@@ -233,13 +269,31 @@ export function DalilWidget(props: DalilWidgetProps) {
             screenshot={state.screenshot}
             autoSnaps={state.autoSnaps}
             replay={state.replay}
+            ado={state.ado}
             onClose={close}
             onToast={setToast}
-            onSent={(result) => setState({ phase: 'sent', result })}
+            onSent={(result, ado) => setState({ phase: 'sent', result, ado })}
+          />
+        )}
+        {enabled && state.phase === 'connect' && adoDest && (
+          <state.Connect
+            org={adoDest.org}
+            project={adoDest.project}
+            labels={labels}
+            dir={dir}
+            {...appearance}
+            onCancel={close}
+            onSaved={(pat, persisted) => {
+              adoPat.current = pat
+              if (!persisted) setToast(pick(labels, 'adoMemoryOnly'))
+              phaseRef.current = 'idle'
+              setState({ phase: 'idle' })
+              void openWidget()
+            }}
           />
         )}
         {enabled && state.phase === 'sent' && (
-          <SentPanel result={state.result} labels={labels} dir={dir} {...appearance} onClose={close} />
+          <SentPanel result={state.result} ado={state.ado} labels={labels} dir={dir} {...appearance} onClose={close} />
         )}
         {toast && <Toast message={toast} dir={dir} {...appearance} onDone={clearToast} />}
       </>

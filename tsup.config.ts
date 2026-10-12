@@ -1,4 +1,11 @@
+import { cpSync, mkdirSync } from 'node:fs'
 import { defineConfig } from 'tsup'
+
+// The portable replay inlines these into its HTML; the widget fetches them from dist/assets at runtime.
+function copyPlayerAssets() {
+  mkdirSync('dist/assets', { recursive: true })
+  for (const f of ['rrweb-player.2.1.7.js', 'rrweb-player.2.1.7.css']) cpSync(`worker/public/assets/${f}`, `dist/assets/${f}`)
+}
 
 // The web builds swap React for preact/compat so the widget ships without React.
 const preactAlias = {
@@ -33,5 +40,6 @@ export default defineConfig([
     entry: { 'dalil': 'src/web/index.ts' },
     format: ['iife'], globalName: 'Dalil', splitting: false, minify: true,
     ...webBase,
+    onSuccess: async () => copyPlayerAssets(),
   },
 ])

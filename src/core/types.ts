@@ -4,10 +4,34 @@ import type { ReportContext } from '../../shared/payload'
 
 export * from '../../shared/payload'
 
+/** Where reports go. `collector` (default) posts to `endpoint`; `azure-devops` files a work item straight from the browser. */
+export type DalilDestination =
+  | { type: 'collector' }
+  | AdoDestination
+
+export interface AdoDestination {
+  type: 'azure-devops'
+  org: string
+  project: string
+  /** default 'Bug' */
+  workItemType?: string
+  /** default 'Microsoft.VSTS.TCM.ReproSteps' (Basic process: 'System.Description') */
+  bodyField?: string
+  areaPath?: string
+  /** extra tags; 'dalil' is always added */
+  tags?: string[]
+}
+
 export interface DalilConfig {
   project: string
-  publicKey: string
-  endpoint: string // https://dalil.example.com/v1/reports
+  /** collector mode only; not needed with destination.type === 'azure-devops' */
+  publicKey?: string
+  /** collector mode only: https://dalil.example.com/v1/reports */
+  endpoint?: string
+  /** default { type: 'collector' } */
+  destination?: DalilDestination
+  /** Folder URL that serves rrweb-player.2.1.7.js/.css for the portable replay (default: dist/assets next to the widget). */
+  playerUrl?: string
   /** origins that receive X-Request-Id; others are never touched */
   apiOrigins?: string[]
   getContext?: () => ReportContext

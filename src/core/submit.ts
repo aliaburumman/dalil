@@ -80,7 +80,7 @@ export function watchCspViolations(): void {
   document.addEventListener('securitypolicyviolation', (e) => {
     const cfg = getConfig()
     const blocked = (e as SecurityPolicyViolationEvent).blockedURI
-    if (cfg && typeof blocked === 'string' && blocked.startsWith(originOf(cfg.endpoint))) cspViolation = true
+    if (cfg?.endpoint && typeof blocked === 'string' && blocked.startsWith(originOf(cfg.endpoint))) cspViolation = true
   })
 }
 
@@ -171,6 +171,8 @@ const deletePending = () => tx('readwrite', (s) => s.delete(KEY))
 export async function submit(payload: ReportPayload, images: SubmitImage[] = []): Promise<SubmitResult> {
   const cfg = getConfig()
   if (!cfg) throw new DalilSubmitError('not_initialized', 'dalil.init() has not been called')
+  const { endpoint, publicKey } = cfg
+  if (!endpoint || !publicKey) throw new DalilSubmitError('not_initialized', 'endpoint and publicKey are required in collector mode')
   let body: FormData
   try {
     body = buildForm(payload, images)
@@ -179,10 +181,10 @@ export async function submit(payload: ReportPayload, images: SubmitImage[] = [])
   }
   let res: Response
   try {
-    res = await post(cfg.endpoint, cfg.project, cfg.publicKey, body)
+    res = await post(endpoint, cfg.project, publicKey, body)
   } catch (err) {
     try {
-      await putPending({ payload, images, endpoint: cfg.endpoint, project: cfg.project, publicKey: cfg.publicKey, createdAt: Date.now() })
+      await putPending({ payload, images, endpoint, project: cfg.project, publicKey, createdAt: Date.now() })
     } catch {
       throw new DalilSubmitError('save_failed', 'Network error; the report could not be saved for retry')
     }
@@ -190,10 +192,10 @@ export async function submit(payload: ReportPayload, images: SubmitImage[] = [])
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       throw new DalilSubmitError('queued', `Network error; report saved and will be retried (${detail})`)
     }
-    logUnreachable(cfg.endpoint, err, true)
+    logUnreachable(endpoint, err, true)
     throw new DalilSubmitError(
       'unreachable',
-      `Could not reach the collector at ${originOf(cfg.endpoint)}; report saved and will be retried (${detail})`,
+      `Could not reach the collector at ${originOf(endpoint)}; report saved and will be retried (${detail})`,
     )
   }
   return readResult(res)

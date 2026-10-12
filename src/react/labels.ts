@@ -58,6 +58,30 @@ export interface Labels {
   copied?: string
   copyFailed?: string
   done?: string
+  /** Azure DevOps mode (all optional; English defaults apply). {org} {project} {type} {id} {n} are filled in. */
+  adoConnectTitle?: string
+  adoConnectIntro?: string
+  adoTokenLabel?: string
+  adoCreateToken?: string
+  adoValidate?: string
+  adoValidating?: string
+  adoForget?: string
+  adoMemoryOnly?: string
+  adoErrAuth?: string
+  adoErrForbidden?: string
+  adoErrNotFound?: string
+  adoErrUnreachable?: string
+  adoSentAs?: string
+  adoOpen?: string
+  adoPartial?: string
+  adoTokenExpired?: string
+  adoNoAccess?: string
+  adoUpdateToken?: string
+  adoDownload?: string
+  adoDownloadFailed?: string
+  adoTryAgain?: string
+  adoRejected?: string
+  adoBadConfig?: string
 }
 
 export const defaultLabels: Labels = {
@@ -109,9 +133,38 @@ export const defaultLabels: Labels = {
   copied: 'Copied',
   copyFailed: "Couldn't copy",
   done: 'Done',
+  adoConnectTitle: 'Connect Azure DevOps',
+  adoConnectIntro:
+    'Reports are filed in {org} / {project} as you. Paste a personal access token with only the Work Items (Read & write) scope and an expiry of 30 days or less. It stays in this browser.',
+  adoTokenLabel: 'Personal access token',
+  adoCreateToken: 'Create a token in Azure DevOps',
+  adoValidate: 'Validate & save',
+  adoValidating: 'Checking…',
+  adoForget: 'Forget token',
+  adoMemoryOnly: 'Browser storage is unavailable here, so the token is kept only until you close this page.',
+  adoErrAuth: 'Azure DevOps rejected this token. Check that it is correct, still active and has Work Items (Read & write).',
+  adoErrForbidden: "This token can't read work items in {project}. Check its scope and project access.",
+  adoErrNotFound: "Project '{project}' was not found in '{org}'. Check the names.",
+  adoErrUnreachable: "Couldn't reach Azure DevOps org '{org}'. Check the org name, then try again.",
+  adoSentAs: 'Created {type} #{id}',
+  adoOpen: 'Open in Azure DevOps',
+  adoPartial: "{n} image(s) couldn't be attached, see the report.",
+  adoTokenExpired: 'Your Azure DevOps token expired or was revoked.',
+  adoNoAccess: "Your token can't create work items in {project} (check its scope and project access).",
+  adoUpdateToken: 'Update token',
+  adoDownload: 'Download evidence (.zip)',
+  adoDownloadFailed: 'The download was blocked. Use Copy report instead.',
+  adoTryAgain: 'Try again',
+  adoRejected: 'Azure DevOps rejected the work item. Check the work item type and body field in the setup.',
+  adoBadConfig: 'The Azure DevOps destination needs an org and a project.',
   saveFailed: "You appear to be offline and the report couldn't be saved. Please try again.",
 }
 
 export function fmt(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m))
+}
+
+/** A label with its English default (for the optional ones). */
+export function pick(labels: Labels, key: keyof Labels): string {
+  return labels[key] ?? defaultLabels[key] ?? ''
 }
