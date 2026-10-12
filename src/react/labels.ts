@@ -53,6 +53,11 @@ export interface Labels {
   screenRecording?: string
   includeRecording?: string
   preparingRecording?: string
+  /** Sent panel (optional so existing hosts compile; English defaults apply). */
+  copyReport?: string
+  copied?: string
+  copyFailed?: string
+  done?: string
 }
 
 export const defaultLabels: Labels = {
@@ -100,6 +105,10 @@ export const defaultLabels: Labels = {
     "Couldn't reach the bug-report server. Your report is saved on this device and will be retried automatically; please tell the team.",
   buildFailed: 'Something went wrong preparing the report. Please try again.',
   userSaw: 'User saw',
+  copyReport: 'Copy report',
+  copied: 'Copied',
+  copyFailed: "Couldn't copy",
+  done: 'Done',
   saveFailed: "You appear to be offline and the report couldn't be saved. Please try again.",
 }
 

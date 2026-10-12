@@ -11,6 +11,10 @@
     "deploy": "wrangler deploy",
     "migrate:local": "wrangler d1 migrations apply dalil --local",
     "migrate:remote": "wrangler d1 migrations apply dalil --remote",
+    "work:deploy": "node scripts/work.mjs deploy",
+    "work:migrate": "node scripts/work.mjs migrate",
+    "work:secret": "node scripts/work.mjs secret",
+    "work:tail": "node scripts/work.mjs tail",
     "vendor:player": "node scripts/vendor-player.mjs"
   },
   "devDependencies": {

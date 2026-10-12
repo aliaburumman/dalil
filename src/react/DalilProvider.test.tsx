@@ -223,7 +223,9 @@ describe('DalilProvider', () => {
     expect(parts[0]?.part).toBe('image_0')
     expect(parts[0]?.blob).toBeInstanceOf(Blob)
     expect(await screen.findByText('Sent as SPACE-142')).toBeTruthy()
-    expect(screen.queryByRole('dialog')).toBeNull()
+    // The bug form is gone; the persistent Sent panel replaces it.
+    expect(screen.queryByLabelText('What went wrong?')).toBeNull()
+    expect(screen.getByRole('dialog', { name: 'Sent as SPACE-142' })).toBeTruthy()
   })
 
   it('defaults severity to annoying and reports a failed capture', async () => {
@@ -456,5 +458,100 @@ describe('v0.2: auto-snapshots and replay', () => {
     expect(payload.replay).toBeUndefined()
     expect(payload.replayError).toMatch(/size limit/)
     expect(parts.map((p) => p.part)).toEqual(['image_0'])
+  })
+})
+
+describe('Sent panel', () => {
+  const share = { title: 'T', html: '<b>T</b>', text: 'T plain' }
+  const origClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  const origItem = (globalThis as { ClipboardItem?: unknown }).ClipboardItem
+
+  class FakeItem {
+    constructor(public data: Record<string, Blob>) {}
+  }
+
+  function mockClipboard(c: { write?: unknown; writeText?: unknown }) {
+    Object.defineProperty(navigator, 'clipboard', { value: c, configurable: true })
+  }
+
+  afterEach(() => {
+    if (origClipboard) Object.defineProperty(navigator, 'clipboard', origClipboard)
+    else delete (navigator as { clipboard?: unknown }).clipboard
+    ;(globalThis as { ClipboardItem?: unknown }).ClipboardItem = origItem
+  })
+
+  async function sendWith(result: Record<string, unknown>) {
+    core.submit.mockResolvedValue(result)
+    render(<DalilProvider {...base} enabled />)
+    await openDialog()
+    fireEvent.change(screen.getByLabelText('What went wrong?'), { target: { value: 'x' } })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    })
+    await screen.findByText('Sent as SPACE-142')
+  }
+  const ok = { id: 'i', ref: 'SPACE-142', url: '' }
+
+  it('Copy writes html + plain via ClipboardItem', async () => {
+    const write = vi.fn().mockResolvedValue(undefined)
+    const writeText = vi.fn()
+    ;(globalThis as { ClipboardItem?: unknown }).ClipboardItem = FakeItem
+    mockClipboard({ write, writeText })
+    await sendWith({ ...ok, share })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Copy report' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy report' }))
+    })
+    expect(write).toHaveBeenCalledTimes(1)
+    const item = (write.mock.calls[0]![0] as FakeItem[])[0]!
+    expect(Object.keys(item.data).sort()).toEqual(['text/html', 'text/plain'])
+    expect(writeText).not.toHaveBeenCalled()
+    expect(screen.getAllByText('Copied').length).toBeGreaterThan(0)
+  })
+
+  it('falls back to writeText when write rejects', async () => {
+    const write = vi.fn().mockRejectedValue(new Error('denied'))
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    ;(globalThis as { ClipboardItem?: unknown }).ClipboardItem = FakeItem
+    mockClipboard({ write, writeText })
+    await sendWith({ ...ok, share })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy report' }))
+    })
+    expect(writeText).toHaveBeenCalledWith('T plain')
+    expect(screen.getAllByText('Copied').length).toBeGreaterThan(0)
+  })
+
+  it("shows \"Couldn't copy\" when writeText rejects too", async () => {
+    const write = vi.fn().mockRejectedValue(new Error('denied'))
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'))
+    ;(globalThis as { ClipboardItem?: unknown }).ClipboardItem = FakeItem
+    mockClipboard({ write, writeText })
+    await sendWith({ ...ok, share })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Copy report' }))
+    })
+    expect(writeText).toHaveBeenCalledWith('T plain')
+    expect(screen.getByText("Couldn't copy")).toBeTruthy()
+  })
+
+  it('without share: no Copy button, Done focused', async () => {
+    await sendWith(ok)
+    expect(screen.queryByRole('button', { name: 'Copy report' })).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Done' }))
+  })
+
+  it('Done closes the panel', async () => {
+    await sendWith(ok)
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Report a bug' })).toBeTruthy()
+  })
+
+  it('Escape closes the panel', async () => {
+    await sendWith({ ...ok, share })
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Report a bug' })).toBeTruthy()
   })
 })

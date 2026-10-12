@@ -5,5 +5,5 @@
     "strict": true, "noUncheckedIndexedAccess": true, "skipLibCheck": true,
     "declaration": true, "isolatedModules": true, "esModuleInterop": true
   },
-  "include": ["src", "demo"]
+  "include": ["src", "demo", "shared"]
 }

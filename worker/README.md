@@ -2,7 +2,7 @@
 
 Receives bug reports from the `dalil` widget, stores them in D1 + R2, emails them through
 Resend, and serves a triage page. Design: `../docs/design.md` §3. Payload contract:
-`src/payload.ts` (a copy of `../src/core/types.ts`; keep `PAYLOAD_VERSION` in sync).
+`../shared/payload.ts` (shared with the widget; `src/payload.ts` re-exports it and adds `SUPPORTED_VERSIONS`).
 
 Plain fetch handler, no framework. Its own package — run everything from `worker/`.
 
@@ -20,7 +20,7 @@ Plain fetch handler, no framework. Its own package — run everything from `work
 
 ## Ingest parts (payload v2)
 
-Limits live in `src/limits.ts`, a copy of `../src/core/limits.ts` (change both together).
+Limits live in `../shared/limits.ts`, shared with the widget (`src/limits.ts` re-exports it).
 
 | Part | Max | Per-part cap |
 |---|---|---|
@@ -72,18 +72,57 @@ npx wrangler d1 migrations apply dalil --remote
   except **blockers**, which email immediately (`sent`/`failed`) as before. A blocker keeps
   `digested_at = NULL`, so it also appears in the next digest marked "(already emailed)".
 - **`each`**: every report emails immediately (the old behaviour).
-- **Digest schedule**: cron `0 6,18 * * *` UTC = 09:00 and 21:00 Asia/Amman. One email per project
+- **Digest schedule**: cron `0 6,18 * * *` UTC = 09:00 and 21:00 in Asia/Amman (UTC+3, no DST). Cron expressions are UTC, so a DST zone drifts 1 h twice a year. One email per project
   with `notify_emails` and at least one report with `digested_at IS NULL` (max 200, then "+N more");
   no email when there is nothing. `digested_at` is set only for the rows included, and only after
-  Resend accepts the send, so a failure retries at the next run. The daily `17 3 * * *` cron stays
+  Resend accepts the send (or email is disabled, see `EMAIL_ENABLED`), so a failure retries at the next run. The daily `17 3 * * *` cron stays
   maintenance only (retention, retrying `failed` per-report emails) and never touches `digest` rows.
 - Switch a project: `npx wrangler d1 execute dalil --remote --command "UPDATE projects SET email_mode='each' WHERE id='space'"`
   (back with `'digest'`).
 - **Reports list**: `GET /` (all projects) and `GET /p/:project`, newest first, 50 per page (`?page=`),
   filters `?status=open|all|new|seen|fixed|wontfix` (default `open` = new+seen), `?severity=`, `?kind=`.
-  Both routes (and `POST /r/:id/status`) return 403 unless the request carries a valid Cloudflare
-  Access JWT (see "Verifying the Access JWT" below); the page header shows the signed-in email.
-  `GET /r/:id` and its image/replay routes are not yet verified (unguessable ids; hardening later).
+  The Worker is **deny-by-default**: only `POST`/`OPTIONS /v1/reports` and the vendored
+  `/assets/rrweb-player.*` files are public. Every other path and method (the list, `GET /r/:id` and
+  its image/auto/replay routes, `POST /r/:id/status`, and unknown paths) returns 403 unless the request
+  carries a valid Cloudflare Access JWT (see "Verifying the Access JWT" below); the page header shows
+  the signed-in email. `POST /r/:id/status` also rejects a cross-origin `Origin` header.
+  The route table is `src/routes.ts`.
+
+## Second deployment (work)
+
+The same code deploys to a second Cloudflare account with no fork; only the config differs.
+
+- **Config**: `wrangler.work.example.jsonc` is a complete, standalone template (wrangler configs do not
+  inherit) with placeholder IDs. Keep the real file in a **private work repo** (default
+  `../../dalil-work/wrangler.work.jsonc`, or point `DALIL_WORK_CONFIG` at it) and never commit real IDs
+  here. Wrangler resolves `main`, `assets.directory` and `migrations_dir` relative to the config file,
+  so in the private copy point them at this checkout (see the comment in the template).
+- **Commands** (`scripts/work.mjs` resolves the config and fails with a clear message if it is missing):
+  `npm run work:deploy`, `npm run work:migrate` (D1 binding `DB`, `--remote`), `npm run work:secret -- RESEND_API_KEY`,
+  `npm run work:tail`. Extra args pass through, e.g. `npm run work:deploy -- --dry-run`.
+- **Vars** (all optional, in `vars`):
+
+| Var | Default | Meaning |
+|---|---|---|
+| `TZ` | `Asia/Amman` | IANA zone for dates on the list page, report page and digest (label shows the last segment, e.g. "London") |
+| `DIGEST_CRON` | `0 6,18 * * *` | Cron string that triggers the digest; must equal that entry in `triggers.crons`. Crons are UTC, so a DST zone drifts 1 h |
+| `EMAIL_ENABLED` | `1` | `0` disables all outbound email: reports are stored with `email_status = 'skipped'`, and the digest marks rows `digested_at` so they do not pile up. With `1` and no `RESEND_API_KEY`, sends are `failed` as before |
+
+- **Teams notification** (optional): `npm run work:secret -- NOTIFY_WEBHOOK_URL` with the URL of a Teams
+  **Workflows** webhook (Power Automate trigger "When a Teams webhook request is received", then a
+  "Post card in a chat or channel" step; classic O365 connector webhooks are retired). After each stored
+  report the Worker POSTs an Adaptive Card (title, severity + verdict, page/time, "Open report" button).
+  Best effort: 5 s timeout, no retry, a failure is logged and never affects the report. Independent of `EMAIL_ENABLED`.
+- **Azure DevOps work items** (optional): vars `ADO_ORG`, `ADO_PROJECT`, optional `ADO_WORK_ITEM_TYPE`
+  (default `Bug`) and `ADO_BODY_FIELD` (default `Microsoft.VSTS.TCM.ReproSteps`; the Basic process has no
+  such field, use `System.Description`), plus the secret `npm run work:secret -- ADO_PAT`. The PAT needs
+  scope **Work Items: Read & write**. The feature is on only when `ADO_ORG`, `ADO_PROJECT` and `ADO_PAT` are
+  all set; then a "Create work item" button appears on the report page (once per report; afterwards a
+  "Work item" link). Needs migration `0004_workitem.sql` (`npm run work:migrate`).
+- **Access**: use a self-hosted Access application with **Microsoft Entra ID** as the identity provider.
+  It must **bypass** `/v1/reports*` (ingest from tester browsers) and `/assets/*` (player files); every
+  other path stays behind Access, and the Worker still verifies the JWT (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`).
+- Use a distinct `ratelimits[0].namespace_id`, D1 database and R2 bucket in the work account.
 
 ## Client contract
 
