@@ -214,4 +214,11 @@ See [`worker/README.md`](worker/README.md) for D1, R2, Resend, Cloudflare Access
 npm i && npm test && npm run demo
 ```
 
+### End-to-end copy test
+
+`npm run build && npm run e2e:copy` starts the collector locally (`wrangler dev`, needs `npm ci` in `worker/`),
+serves a test page and, in real Chromium, checks that "Copy report" (widget) and "Copy repro steps" / "Copy title"
+(triage page) put both `text/html` and `text/plain` on the clipboard. First run: `npx playwright install chromium`.
+CI runs it as the `e2e` job.
+
 MIT

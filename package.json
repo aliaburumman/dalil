@@ -26,7 +26,8 @@
     "build": "rm -rf dist && tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "demo": "vite demo"
+    "demo": "vite demo",
+    "e2e:copy": "node scripts/e2e-copy.mjs"
   },
   "peerDependencies": {
     "react": ">=18",
@@ -53,6 +54,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.1.2",
+    "playwright": "1.64.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tsup": "^8.5.1",
