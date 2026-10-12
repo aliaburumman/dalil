@@ -2,7 +2,7 @@
 
 Receives bug reports from the `dalil` widget, stores them in D1 + R2, emails them through
 Resend, and serves a triage page. Design: `../docs/design.md` §3. Payload contract:
-`src/payload.ts` (a copy of `../src/core/types.ts`; keep `PAYLOAD_VERSION` in sync).
+`../shared/payload.ts` (shared with the widget; `src/payload.ts` re-exports it and adds `SUPPORTED_VERSIONS`).
 
 Plain fetch handler, no framework. Its own package — run everything from `worker/`.
 
@@ -20,7 +20,7 @@ Plain fetch handler, no framework. Its own package — run everything from `work
 
 ## Ingest parts (payload v2)
 
-Limits live in `src/limits.ts`, a copy of `../src/core/limits.ts` (change both together).
+Limits live in `../shared/limits.ts`, shared with the widget (`src/limits.ts` re-exports it).
 
 | Part | Max | Per-part cap |
 |---|---|---|
