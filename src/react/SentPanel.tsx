@@ -1,11 +1,14 @@
 // Persistent confirmation after a successful submit: reference, Copy report, Done.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { SubmitResult } from '../core'
-import { defaultLabels, fmt, type Labels } from './labels'
+import { defaultLabels, fmt, pick, type Labels } from './labels'
+import type { AdoSent } from './Dialog'
 import { rootAttrs, type Appearance } from './styles'
 
 export interface SentPanelProps extends Appearance {
   result: SubmitResult
+  /** Azure DevOps variant: "Created Bug #id" and a link to the work item. */
+  ado?: AdoSent
   labels: Labels
   dir: 'ltr' | 'rtl'
   onClose: () => void
@@ -18,10 +21,10 @@ function activeIn(node: Element | null): HTMLElement | null {
   return ((root && 'activeElement' in root ? root.activeElement : document.activeElement) as HTMLElement | null) ?? null
 }
 
-export function SentPanel({ result, labels, dir, onClose, theme, accent, accentForeground }: SentPanelProps) {
+export function SentPanel({ result, ado, labels, dir, onClose, theme, accent, accentForeground }: SentPanelProps) {
   const ids = useId()
   const rootRef = useRef<HTMLDivElement>(null)
-  const firstRef = useRef<HTMLButtonElement>(null)
+  const firstRef = useRef<HTMLButtonElement & HTMLAnchorElement>(null)
   const [status, setStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const share = result.share
@@ -118,18 +121,31 @@ export function SentPanel({ result, labels, dir, onClose, theme, accent, accentF
         onKeyDown={onKeyDown}
       >
         <div className="dalil-head">
-          <h2 id={`${ids}-title`}>{fmt(labels.sentAs, { ref: result.ref })}</h2>
+          <h2 id={`${ids}-title`}>
+            {ado ? fmt(pick(labels, 'adoSentAs'), { type: ado.type, id: ado.id || '' }) : fmt(labels.sentAs, { ref: result.ref })}
+          </h2>
         </div>
         <p className="dalil-status" role="status" aria-live="polite">
-          {status === 'copied' ? L('copied') : status === 'failed' ? L('copyFailed') : ''}
+          {status === 'copied'
+            ? L('copied')
+            : status === 'failed'
+              ? L('copyFailed')
+              : ado && ado.failedMedia > 0
+                ? fmt(pick(labels, 'adoPartial'), { n: ado.failedMedia })
+                : ''}
         </p>
-        <div className="dalil-actions">
+        <div className="dalil-actions" style={ado ? { flexWrap: 'wrap' } : undefined}>
+          {ado && (
+            <a ref={firstRef} className="dalil-btn" href={ado.url} target="_blank" rel="noopener">
+              {pick(labels, 'adoOpen')}
+            </a>
+          )}
           {share && (
-            <button ref={firstRef} type="button" className="dalil-btn" onClick={copy}>
+            <button ref={ado ? undefined : firstRef} type="button" className="dalil-btn" onClick={copy}>
               {status === 'copied' ? L('copied') : L('copyReport')}
             </button>
           )}
-          <button ref={share ? undefined : firstRef} type="button" className="dalil-btn dalil-primary" onClick={onClose}>
+          <button ref={share || ado ? undefined : firstRef} type="button" className="dalil-btn dalil-primary" onClick={onClose}>
             {L('done')}
           </button>
         </div>

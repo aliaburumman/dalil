@@ -4,8 +4,13 @@
 import { createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { init as coreInit, log as coreLog, open as coreOpen, type DalilConfig } from '../core'
+import { setScriptUrl } from '../core/adoFetch'
 import { DalilWidget, type DalilWidgetProps } from '../react/DalilWidget'
 import { createShadowHost, type ShadowHost } from '../react/shadow'
+
+// IIFE build: remember where this script came from now (document.currentScript is null later), so the
+// portable replay can find ./assets/rrweb-player.* next to it.
+if (typeof document !== 'undefined') setScriptUrl((document.currentScript as HTMLScriptElement | null)?.src)
 
 export type DalilWebConfig = Omit<DalilWidgetProps, 'styleRoot' | 'enabled'> & { enabled?: boolean }
 

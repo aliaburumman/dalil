@@ -181,7 +181,7 @@ describe('fetch patch', () => {
   })
 
   it('never records requests to the dalil endpoint', async () => {
-    await fetch(cfg.endpoint, { method: 'POST' })
+    await fetch(cfg.endpoint!, { method: 'POST' })
     await tick()
     expect(requests()).toHaveLength(0)
   })

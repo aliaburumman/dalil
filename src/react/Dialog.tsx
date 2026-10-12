@@ -12,14 +12,19 @@ import {
   type SubmitResult,
   type Severity,
   type Verdict,
+  type AdoDestination,
 } from '../core'
+import { forgetToken } from '../core/adoToken'
+import type { PreparedAdo } from './adoSubmit'
+import { AdoErrorPanel } from './AdoErrorPanel'
+import { ConnectAdo } from './ConnectAdo'
 import type { AutoSnap } from './autosnap'
 import type { ReplayHandle } from './replay'
 import { fitBody, type SizedPart } from './assemble'
 import { dataUrlToBlob } from './images'
 import { Annotator, type AnnotatorHandle } from './Annotator'
 import { ImagePicker, type PickedImage } from './ImagePicker'
-import { defaultLabels, fmt, type Labels } from './labels'
+import { defaultLabels, fmt, pick, type Labels } from './labels'
 import { rootAttrs, type Appearance } from './styles'
 
 export interface DialogSnapshot {
@@ -42,8 +47,20 @@ export interface DialogProps extends Appearance {
   onClose: () => void
   onToast: (message: string) => void
   /** Submit succeeded: the host swaps this dialog for the Sent panel. */
-  onSent: (result: SubmitResult) => void
+  onSent: (result: SubmitResult, ado?: AdoSent) => void
+  /** Azure DevOps mode: the report is filed straight into Azure DevOps with the tester's token. */
+  ado?: { dest: AdoDestination; pat: string; playerUrl?: string }
 }
+
+/** What the Sent panel needs to show the Azure DevOps variant. */
+export interface AdoSent {
+  id: number
+  url: string
+  type: string
+  failedMedia: number
+}
+
+const ADO_CODES = new Set(['auth', 'forbidden', 'notfound', 'rejected', 'unavailable', 'timeout'])
 
 function formatDuration(ms: number): string {
   const total = Math.max(0, Math.round(ms / 1000))
@@ -92,7 +109,7 @@ function activeIn(node: Element | null): HTMLElement | null {
   return ((root && 'activeElement' in root ? root.activeElement : document.activeElement) as HTMLElement | null) ?? null
 }
 
-export function Dialog({ project, labels, dir, getContext, snap, screenshot, autoSnaps: initialAutos, replay, onClose, onToast, onSent, theme, accent, accentForeground }: DialogProps) {
+export function Dialog({ project, labels, dir, getContext, snap, screenshot, autoSnaps: initialAutos, replay, onClose, onToast, onSent, ado, theme, accent, accentForeground }: DialogProps) {
   const ids = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const firstRef = useRef<HTMLTextAreaElement>(null)
@@ -108,6 +125,50 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
   const replayInfo = useMemo(() => replay?.info() ?? null, [replay])
   const [error, setError] = useState<string | null>(null)
   const context = useMemo(() => safeContext(getContext), [getContext])
+  // Azure DevOps: the prepared report stays in memory (retries, zip, copy) until the tester is done.
+  const [pat, setPat] = useState(ado?.pat ?? '')
+  const [adoFail, setAdoFail] = useState<{ code: string } | null>(null)
+  const [connecting, setConnecting] = useState(false)
+  const preparedRef = useRef<PreparedAdo | null>(null)
+  const adoInput = useRef<{ payload: ReportPayload; uploads: { part: string; name: string; blob: Blob }[] } | null>(null)
+  const evidenceRef = useRef<Promise<Blob> | null>(null)
+
+  const sendAdo = async (token: string) => {
+    if (!ado) return
+    setSending(true)
+    setAdoFail(null)
+    try {
+      const mod = await import('./adoSubmit')
+      if (!preparedRef.current && adoInput.current) {
+        preparedRef.current = await mod.prepareAdoReport({ ...adoInput.current, playerUrl: ado.playerUrl })
+      }
+      const prepared = preparedRef.current
+      if (!prepared) throw new Error('nothing to send')
+      const res = await mod.sendAdoReport({ prepared, dest: ado.dest, pat: token })
+      onSent(
+        { id: String(res.id), ref: `#${res.id}`, url: res.url, share: res.share },
+        { id: res.id, url: res.url, type: ado.dest.workItemType || 'Bug', failedMedia: res.failedMedia },
+      )
+    } catch (err) {
+      if (!preparedRef.current) {
+        setError(labels.buildFailed ?? defaultLabels.buildFailed!)
+        setSending(false)
+        return
+      }
+      const code = (err as { code?: unknown } | null)?.code
+      setAdoFail({ code: typeof code === 'string' && ADO_CODES.has(code) ? code : 'unavailable' })
+      setSending(false)
+    }
+  }
+
+  const evidence = () => {
+    evidenceRef.current ??= (async () => {
+      const mod = await import('./adoSubmit')
+      if (!preparedRef.current) throw new Error('nothing to download')
+      return mod.buildEvidenceZip(preparedRef.current)
+    })()
+    return evidenceRef.current
+  }
 
   const counts = useMemo(() => {
     let steps = 0
@@ -146,7 +207,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
 
   // Escape closes while the dialog is open, wherever focus is (listener lives on the owner document).
   const closeRef = useRef({ sending, onClose })
-  closeRef.current = { sending, onClose }
+  closeRef.current = { sending: sending || connecting || !!adoFail, onClose }
   useLayoutEffect(() => {
     const doc = rootRef.current?.ownerDocument ?? document
     const onDocKey = (e: KeyboardEvent) => {
@@ -265,6 +326,11 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
       ...kept.map((a) => ({ part: a.part, name: a.name, blob: a.blob })),
       ...(finalReplay ? [{ part: 'replay', name: finalReplay.name, blob: finalReplay.blob }] : []),
     ]
+    if (ado) {
+      adoInput.current = { payload, uploads }
+      await sendAdo(pat)
+      return
+    }
     try {
       const res = await submit(payload, uploads)
       onSent(res)
@@ -297,6 +363,48 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
     ['annoying', labels.severityAnnoying],
     ['minor', labels.severityMinor],
   ]
+
+  if (ado && connecting) {
+    return (
+      <ConnectAdo
+        org={ado.dest.org}
+        project={ado.dest.project}
+        labels={labels}
+        dir={dir}
+        theme={theme}
+        accent={accent}
+        accentForeground={accentForeground}
+        hasToken
+        notice={adoFail?.code === 'forbidden' ? undefined : pick(labels, 'adoTokenExpired')}
+        onCancel={() => setConnecting(false)}
+        onForgotten={onClose}
+        onSaved={(token) => {
+          setPat(token)
+          setConnecting(false)
+          void sendAdo(token)
+        }}
+      />
+    )
+  }
+  if (ado && adoFail && preparedRef.current) {
+    return (
+      <AdoErrorPanel
+        code={adoFail.code}
+        org={ado.dest.org}
+        project={ado.dest.project}
+        share={preparedRef.current.share}
+        labels={labels}
+        dir={dir}
+        theme={theme}
+        accent={accent}
+        accentForeground={accentForeground}
+        evidence={evidence}
+        onUpdateToken={() => setConnecting(true)}
+        onRetry={() => void sendAdo(pat)}
+        onClose={onClose}
+      />
+    )
+  }
 
   return (
     <div
@@ -443,6 +551,19 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
         )}
 
         <div className="dalil-actions">
+          {ado && (
+            <button
+              type="button"
+              className="dalil-btn"
+              style={{ marginInlineEnd: 'auto' }}
+              disabled={sending}
+              onClick={() => {
+                void forgetToken(ado.dest.org).then(onClose)
+              }}
+            >
+              {pick(labels, 'adoForget')}
+            </button>
+          )}
           <button type="button" className="dalil-btn" onClick={onClose} disabled={sending}>
             {labels.cancel}
           </button>
