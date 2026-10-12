@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BASE, call, form, ingestRequest, payload, seed, testEnv } from './helpers'
 
+async function gz(text: string) {
+  return new Uint8Array(await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer())
+}
+
 const HOOK = 'https://prod-1.westeurope.logic.azure.com/workflows/abc?sig=x'
 let hook: ReturnType<typeof vi.fn<(init?: RequestInit) => Response>>
 
@@ -68,5 +72,23 @@ describe('Teams notification', () => {
     hook.mockReturnValue(new Response('', { status: 200 }))
     expect((await ingest({ EMAIL_ENABLED: '0' })).status).toBe(201)
     expect(hook).toHaveBeenCalledTimes(1)
+  })
+
+  it('links carry ?play=failure (card url and share) only when the report has a replay', async () => {
+    hook.mockReturnValue(new Response('', { status: 202 }))
+    const plain = (await (await ingest()).json()) as { url: string; share: { html: string; text: string } }
+    expect(hook.mock.calls[0]![0]!.body as string).not.toContain('play=failure')
+    expect(plain.share.text).not.toContain('play=failure')
+
+    hook.mockClear()
+    const p = payload({ v: 2, replay: { part: 'replay', durationMs: 5000, events: 1, bytes: 1, rrweb: '2.0.0' } } as never)
+    const images = { image_0: { bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 0xff, 0xd9]), type: 'image/jpeg' }, replay: { bytes: await gz('[{"type":4,"timestamp":1,"data":{}}]'), type: 'application/gzip' } }
+    const res = await call(ingestRequest(form(p, images)), testEnv({ NOTIFY_WEBHOOK_URL: HOOK }))
+    expect(res.status).toBe(201)
+    const withReplay = (await res.json()) as { url: string; share: { html: string; text: string } }
+    const card = JSON.parse(hook.mock.calls[0]![0]!.body as string)
+    expect(card.attachments[0].content.actions[0].url).toBe(`${withReplay.url}?play=failure`)
+    expect(withReplay.share.text).toContain(`Full evidence: ${withReplay.url}?play=failure`)
+    expect(withReplay.share.html).toContain(`href="${withReplay.url}?play=failure"`)
   })
 })

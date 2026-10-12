@@ -97,3 +97,11 @@ describe('buildShare', () => {
     expect(buildShare(base({ title: 'x'.repeat(500) })).title.length).toBeLessThanOrEqual('SPACE-7: '.length + 140)
   })
 })
+
+describe('buildShare evidence link', () => {
+  it('keeps ?play=failure in both html and text links', () => {
+    const s = buildShare(base({ url: `${URL_}?play=failure` }))
+    expect(s.html).toContain('href="https://dalil.test/r/abc?play=failure"')
+    expect(s.text.endsWith('Full evidence: https://dalil.test/r/abc?play=failure')).toBe(true)
+  })
+})

@@ -112,3 +112,11 @@ export function reporterOf(raw: string | null | undefined): { name: string; tena
     return { name: '', tenant: '' }
   }
 }
+
+/**
+ * Link to a report's evidence page. When the report has a replay, `?play=failure` makes the player
+ * start a few seconds before the first failure. Plain url otherwise.
+ */
+export function evidenceUrl(base: string, id: string, hasReplay: boolean | number | null | undefined): string {
+  return `${base}/r/${id}${hasReplay ? '?play=failure' : ''}`
+}

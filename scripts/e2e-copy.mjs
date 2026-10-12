@@ -152,6 +152,25 @@ try {
   const copied = await pg.evaluate(() => navigator.clipboard.readText())
   check('B: Copy title equals ref-prefixed title', copied === `${ref}: ${title}`, JSON.stringify(copied))
 
+  // ---- Flow C: jump-to-failure replay (?play=failure) ----
+  // The report was submitted with the replay recorder on (default), so the page has a player box.
+  const base = url.split('?')[0]
+  check('C: copied evidence link carries ?play=failure (report has a replay)', url.endsWith('?play=failure'), url)
+  await pg.goto(base + '?play=failure')
+  await pg.waitForSelector('#replay-box', { timeout: 15000 })
+  const playedFrom = await pg
+    .waitForFunction(() => document.getElementById('replay-box')?.getAttribute('data-played-from'), null, { timeout: 30000 })
+    .then((h) => h.jsonValue(), () => null)
+  const from = Number(playedFrom)
+  // 0 when the failure is within the first 5 s of the recording (clamped), otherwise the offset before it; never negative.
+  check('C: player seeked via play=failure (data-played-from set, >= 0)', playedFrom !== null && Number.isFinite(from) && from >= 0, String(playedFrom))
+  const evidence = await pg.locator('#replay-box').getAttribute('data-evidence')
+  check('C: player box carries the verdict evidence event id', !!evidence, String(evidence))
+  await pg.goto(base)
+  await pg.waitForSelector('#replay-box', { timeout: 15000 })
+  await pg.waitForTimeout(1500)
+  check('C: plain report link does not auto-seek', (await pg.locator('#replay-box').getAttribute('data-played-from')) === null)
+
   await browser.close()
 } catch (e) {
   await fail(String(e?.stack ?? e))

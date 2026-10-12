@@ -1,6 +1,6 @@
 // Triage page: GET /r/:id, GET /r/:id/img/:part, POST /r/:id/status.
 // Every route here is guarded by the deny-by-default router (routes.ts); handlers receive the verified user.
-import { adoEnabled, ADO_ERRORS, AdoError as AdoErrorLike, createWorkItem } from './ado'
+import { adoEnabled, ADO_ERRORS, AdoError as AdoErrorLike, createWorkItem, uploadAttachment, type AdoMedia } from './ado'
 import { loadStored, refOf } from './email'
 import type { Env, ReportRow } from './env'
 import { getProject } from './ingest'
@@ -11,7 +11,7 @@ import { buildShare } from './share'
 import type { ProjectRow } from './env'
 import { failedRequests, failedRequestTitle, isFailedRequest, kindLabel, relTime, timelineHtml } from './steps'
 import { BASE_CSS, htmlHeaders, icon, KIND_COLOR, relAgo, safeNext, SEV_LABEL, statusLabel, topbar } from './ui'
-import { esc, formatLocal, formatTime, partKey, tzOf, zoneLabel } from './util'
+import { esc, evidenceUrl, formatLocal, formatTime, partKey, tzOf, zoneLabel } from './util'
 
 export const STATUSES = ['new', 'seen', 'fixed', 'wontfix'] as const
 const ID = /^[0-9a-f-]{36}$/
@@ -23,11 +23,19 @@ async function getReport(env: Env, id: string): Promise<ReportRow | null> {
 
 const notFound = () => new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain' } })
 
+/**
+ * R2 key of an image part (image_N or auto_N). Shared by the image routes and the work-item upload so they
+ * cannot drift. partKey leaves image_N as is and stores auto_N as auto_N.jpg, exactly what each handler did before.
+ */
+function mediaKey(row: ReportRow, part: string): string {
+  return `${row.r2_prefix}${partKey(part)}`
+}
+
 export async function handleImage(env: Env, id: string, part: string): Promise<Response> {
   if (!IMAGE_PART.test(part)) return notFound()
   const row = await getReport(env, id)
   if (!row) return notFound()
-  const obj = await env.BUCKET.get(`${row.r2_prefix}${part}`)
+  const obj = await env.BUCKET.get(mediaKey(row, part))
   if (!obj) return notFound()
   return new Response(obj.body, {
     headers: {
@@ -44,7 +52,7 @@ export async function handleAuto(env: Env, id: string, n: string): Promise<Respo
   if (!AUTO_PART.test(part)) return notFound()
   const row = await getReport(env, id)
   if (!row) return notFound()
-  const obj = await env.BUCKET.get(`${row.r2_prefix}${partKey(part)}`)
+  const obj = await env.BUCKET.get(mediaKey(row, part))
   if (!obj) return notFound()
   return new Response(obj.body, {
     headers: {
@@ -99,10 +107,45 @@ function shareOf(env: Env, row: ReportRow, ref: string, events: DalilEvent[] | u
     events,
     pageUrl: row.page_url,
     createdAt: row.created_at,
-    url: `${env.PUBLIC_BASE}/r/${row.id}`,
+    url: evidenceUrl(env.PUBLIC_BASE, row.id, row.has_replay),
   })
 }
 
+const MAX_UPLOAD_BYTES = 2_000_000
+const UPLOAD_CONCURRENCY = 3
+
+const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
+const extOf = (type: string) => (type.includes('png') ? 'png' : type.includes('webp') ? 'webp' : type.includes('gif') ? 'gif' : 'jpg')
+
+/** Runs fn over items with at most `limit` in flight; results keep input order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i]!, i)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
+/*
+ * Create work item, in order:
+ *
+ *   POST /r/:id/workitem
+ *     1. claim     D1: workitem_url = 'pending:<now>' (double click / two people -> one item; stale after PENDING_TTL_MS)
+ *     2. read      R2: report.json -> part names (payload.images, then payload.autoSnaps); null -> Bug without media
+ *     3. upload xN R2 bytes (arrayBuffer, <= 2 MB each) -> ADO POST _apis/wit/attachments, 3 at a time,
+ *                  results index-addressed so images keep report order; one failure is skipped and noted,
+ *                  all failing with auth/unavailable aborts (-> step 5 reset, ?wi_error=<code>)
+ *     4. create    ADO POST workitems: Repro Steps (share + inline <img> + replay link ?play=failure),
+ *                  AttachedFile relation per image, plain Hyperlink relation
+ *     5. store     D1: workitem_url = <ADO url>   (on any error: reset to NULL, 303 back with ?wi_error=)
+ *
+ *   Worst case: 3 batches x 15 s uploads + 10 s create, under PENDING_TTL_MS (120 s).
+ */
 export async function handleWorkItem(req: Request, env: Env, id: string): Promise<Response> {
   const origin = req.headers.get('origin')
   if (origin && origin !== new URL(req.url).origin) return new Response('Forbidden', { status: 403 })
@@ -122,8 +165,43 @@ export async function handleWorkItem(req: Request, env: Env, id: string): Promis
   try {
     const project = await getProject(env, row.project_id)
     const stored = await loadStored(env, row)
-    const share = shareOf(env, row, project ? refOf(project, row.seq) : `#${row.seq}`, stored?.payload.events)
-    const url = await createWorkItem(env, share, `${env.PUBLIC_BASE}/r/${row.id}`)
+    const ref = project ? refOf(project, row.seq) : `#${row.seq}`
+    const share = shareOf(env, row, ref, stored?.payload.events)
+
+    // Parts in report order: images first, then auto snapshots.
+    const parts = [
+      ...(stored?.payload.images ?? []).filter((i) => i.kind !== 'auto').map((i) => ({ part: i.part, kind: 'screenshot' as const, label: '' })),
+      ...(stored?.payload.autoSnaps ?? []).map((a) => ({ part: a.part, kind: 'auto' as const, label: a.label })),
+    ]
+    let shots = 0
+    let autos = 0
+    const named = parts.map((p) => ({ ...p, n: p.kind === 'screenshot' ? ++shots : ++autos }))
+    const results = await mapLimit(named, UPLOAD_CONCURRENCY, async (m): Promise<AdoMedia | AdoErrorLike | null> => {
+      try {
+        const obj = await env.BUCKET.get(mediaKey(row, m.part))
+        if (!obj || obj.size > MAX_UPLOAD_BYTES) return null
+        const bytes = await obj.arrayBuffer()
+        const type = obj.httpMetadata?.contentType ?? 'image/jpeg'
+        const name = m.kind === 'screenshot' ? `${ref}-screenshot-${m.n}` : `${ref}-auto-${m.n}${slug(m.label) ? `-${slug(m.label)}` : ''}`
+        const url = await uploadAttachment(env, bytes, `${name}.${extOf(type)}`)
+        return { url, kind: m.kind, label: m.label }
+      } catch (err) {
+        if (!(err instanceof AdoErrorLike)) console.error(`dalil: work item media ${m.part} for ${row.id} failed: ${String(err)}`)
+        return err instanceof AdoErrorLike ? err : null
+      }
+    })
+    const media = results.filter((r): r is AdoMedia => !!r && !(r instanceof AdoErrorLike))
+    const errors = results.filter((r): r is AdoErrorLike => r instanceof AdoErrorLike)
+    if (named.length && !media.length) {
+      const fatal = errors.find((e) => e.code === 'auth') ?? errors.find((e) => e.code === 'unavailable')
+      if (fatal) throw fatal
+    }
+    const replayMeta = row.has_replay ? stored?.payload.replay : undefined
+    const url = await createWorkItem(env, share, `${env.PUBLIC_BASE}/r/${row.id}`, {
+      media,
+      failedMedia: named.length - media.length,
+      replay: replayMeta ? { url: evidenceUrl(env.PUBLIC_BASE, row.id, true), durationMs: replayMeta.durationMs } : null,
+    })
     await env.DB.prepare('UPDATE reports SET workitem_url = ? WHERE id = ? AND workitem_url = ?').bind(url, row.id, mine).run()
     return new Response(null, { status: 303, headers: { location: back } })
   } catch (err) {
@@ -185,7 +263,24 @@ details{margin-top:6px}summary{cursor:pointer;font-size:12.5px;font-weight:600;c
 @media (max-width:720px){.grid{grid-template-columns:1fr 1fr}h1{font-size:20px}ol.tl li{grid-template-columns:20px 54px minmax(0,1fr);padding:7px 10px}.strip figure{width:160px}.strip img{height:100px}}
 @media (max-width:420px){.grid{grid-template-columns:1fr}}`
 
+/** Seconds of lead before the failure when opened with ?play=failure (manual "Jump to" buttons keep 1500 ms). */
+const FAILURE_LEAD_MS = 5000
+
+/**
+ * Which dalil mark to open the replay at: the one matching the verdict's evidence event, else the first
+ * request/error mark, else the first mark, else null. Source text so tests can evaluate the same code the page runs.
+ */
+export const PICK_TARGET_JS = `function pickTarget(marks,ev){
+  function pl(e){return (e&&e.data&&e.data.payload)||{}}
+  var i;
+  if(ev)for(i=0;i<marks.length;i++)if(pl(marks[i]).eventId===ev)return marks[i];
+  for(i=0;i<marks.length;i++){var k=pl(marks[i]).kind;if(k==='request'||k==='error')return marks[i]}
+  return marks.length?marks[0]:null
+}`
+
 const REPLAY_JS = `
+${PICK_TARGET_JS}
+const FAILURE_LEAD_MS=${FAILURE_LEAD_MS};
 (function(){
   var box=document.getElementById('replay-box');if(!box)return;
   var id=box.getAttribute('data-id');
@@ -217,6 +312,13 @@ const REPLAY_JS = `
         b.addEventListener('click',function(){player.goto(Math.max(0,e.timestamp-first-1500),true)});
         bar.appendChild(b);bar.appendChild(document.createTextNode(' '));
       });
+    }
+    if(/(^|[?&])play=failure(&|$)/.test(location.search)){
+      var tg=pickTarget(marks,box.getAttribute('data-evidence')||'');
+      var from=tg?Math.max(0,tg.timestamp-first-FAILURE_LEAD_MS):0;
+      box.scrollIntoView({block:'center'});
+      player.goto(from,true);
+      box.setAttribute('data-played-from',String(from));
     }
   }).catch(function(e){msg('Could not load the recording: '+(e&&e.message?e.message:e))});
 })();`
@@ -313,7 +415,7 @@ export async function handlePage(env: Env, id: string, user: { email: string }, 
     }
 
     if (row.has_replay) {
-      h.push(`<h2 id="replay">Replay</h2><div id="replay-marks" class="marks"></div><div id="replay-box" data-id="${esc(row.id)}">Loading recording…</div>`)
+      h.push(`<h2 id="replay">Replay</h2><div id="replay-marks" class="marks"></div><div id="replay-box" data-id="${esc(row.id)}" data-evidence="${esc(p.verdict?.evidenceEventId ?? '')}">Loading recording…</div>`)
     } else if (p.replayError) {
       h.push(`<h2 id="replay">Replay</h2><p class="muted">No recording: ${esc(p.replayError)}</p>`)
     }
