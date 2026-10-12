@@ -26,6 +26,8 @@ beforeEach(async () => {
 })
 afterEach(() => vi.restoreAllMocks())
 
+/** GET with a valid Access JWT (all non-public routes are deny-by-default). */
+const get = async (url: string) => call(new Request(url, { headers: await accessHeaders() }), testEnv(ACCESS_VARS))
 const row = (id: string) => env.DB.prepare('SELECT * FROM reports WHERE id = ?').bind(id).first<ReportRow>()
 
 describe('CORS preflight', () => {
@@ -187,7 +189,7 @@ describe('report page', () => {
   it('renders and escapes a <script> title', async () => {
     const res = await call(ingestRequest(form(payload({ title: '<script>alert("x")</script>' }))))
     const { id } = (await res.json()) as { id: string }
-    const page = await call(new Request(`${BASE}/r/${id}`))
+    const page = await get(`${BASE}/r/${id}`)
     expect(page.status).toBe(200)
     const html = await page.text()
     expect(html).not.toContain('<script>alert')
@@ -197,11 +199,11 @@ describe('report page', () => {
     expect(html).toContain(`/r/${id}/img/image_0`)
     expect(page.headers.get('content-security-policy')).toContain("script-src 'nonce-")
 
-    const img = await call(new Request(`${BASE}/r/${id}/img/image_0`))
+    const img = await get(`${BASE}/r/${id}/img/image_0`)
     expect(img.status).toBe(200)
     expect(img.headers.get('content-type')).toBe('image/jpeg')
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(JPEG)
-    expect((await call(new Request(`${BASE}/r/${id}/img/report.json`))).status).toBe(404)
+    expect((await get(`${BASE}/r/${id}/img/report.json`)).status).toBe(404)
   })
 
   it('updates the status', async () => {
@@ -221,7 +223,7 @@ describe('report page', () => {
   })
 
   it('404s an unknown report', async () => {
-    expect((await call(new Request(`${BASE}/r/00000000-0000-0000-0000-000000000000`))).status).toBe(404)
+    expect((await get(`${BASE}/r/00000000-0000-0000-0000-000000000000`)).status).toBe(404)
   })
 })
 
@@ -312,21 +314,21 @@ describe('v0.2 ingest', () => {
     expect(await env.BUCKET.head(`${prefix}replay.json.gz`)).not.toBeNull()
     expect(await env.BUCKET.head(`${prefix}auto_2.jpg`)).not.toBeNull()
 
-    const r = await call(new Request(`${BASE}/r/${id}/replay`))
+    const r = await get(`${BASE}/r/${id}/replay`)
     expect(r.status).toBe(200)
     expect(r.headers.get('content-type')).toBe('application/gzip')
     expect(r.headers.get('cache-control')).toBe('private, no-store')
     expect(new Uint8Array(await r.arrayBuffer())).toEqual(gz)
 
-    const a = await call(new Request(`${BASE}/r/${id}/auto/1`))
+    const a = await get(`${BASE}/r/${id}/auto/1`)
     expect(a.status).toBe(200)
     expect(a.headers.get('content-type')).toBe('image/jpeg')
-    expect((await call(new Request(`${BASE}/r/${id}/auto/3`))).status).toBe(404)
+    expect((await get(`${BASE}/r/${id}/auto/3`)).status).toBe(404)
   })
 
   it('404s the replay route when there is none', async () => {
     const { id } = (await (await call(ingestRequest(form(payload())))).json()) as { id: string }
-    expect((await call(new Request(`${BASE}/r/${id}/replay`))).status).toBe(404)
+    expect((await get(`${BASE}/r/${id}/replay`)).status).toBe(404)
   })
 
   it('rejects a replay over the compressed cap with 413', async () => {
@@ -382,7 +384,7 @@ describe('v0.2 report page', () => {
   it('sets the CSP, loads the vendored player, renders auto snaps, escapes labels', async () => {
     const p = v2({ autoSnaps: [{ part: 'auto_0', t: Date.now(), reason: 'toast', label: '<script>x</script>' }] })
     const { id } = (await (await call(ingestRequest(await v2Form(await gzip(REPLAY_JSON), {}, p)))).json()) as { id: string }
-    const page = await call(new Request(`${BASE}/r/${id}`))
+    const page = await get(`${BASE}/r/${id}`)
     const csp = page.headers.get('content-security-policy')!
     expect(csp).toContain("default-src 'none'")
     expect(csp).toMatch(/script-src 'nonce-[0-9a-f]+' 'self'/)
@@ -403,7 +405,7 @@ describe('v0.2 report page', () => {
   it('shows replayError when there is no replay', async () => {
     const p = v2({ replay: undefined, replayError: 'recording excluded by tester' })
     const { id } = (await (await call(ingestRequest(await v2Form(null, {}, p)))).json()) as { id: string }
-    const html = await (await call(new Request(`${BASE}/r/${id}`))).text()
+    const html = await (await get(`${BASE}/r/${id}`)).text()
     expect(html).toContain('No recording: recording excluded by tester')
     expect(html).not.toContain('rrweb-player')
   })
@@ -416,7 +418,7 @@ describe('v0.2 report page', () => {
     const css = await call(new Request(`${BASE}/assets/rrweb-player.${PLAYER}.css`))
     expect(css.status).toBe(200)
     expect(css.headers.get('content-type') ?? '').toContain('css')
-    expect((await call(new Request(`${BASE}/assets/other.js`))).status).toBe(404)
+    expect((await get(`${BASE}/assets/other.js`)).status).toBe(404)
   })
 })
 

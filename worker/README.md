@@ -81,9 +81,12 @@ npx wrangler d1 migrations apply dalil --remote
   (back with `'digest'`).
 - **Reports list**: `GET /` (all projects) and `GET /p/:project`, newest first, 50 per page (`?page=`),
   filters `?status=open|all|new|seen|fixed|wontfix` (default `open` = new+seen), `?severity=`, `?kind=`.
-  Both routes (and `POST /r/:id/status`) return 403 unless the request carries a valid Cloudflare
-  Access JWT (see "Verifying the Access JWT" below); the page header shows the signed-in email.
-  `GET /r/:id` and its image/replay routes are not yet verified (unguessable ids; hardening later).
+  The Worker is **deny-by-default**: only `POST`/`OPTIONS /v1/reports` and the vendored
+  `/assets/rrweb-player.*` files are public. Every other path and method (the list, `GET /r/:id` and
+  its image/auto/replay routes, `POST /r/:id/status`, and unknown paths) returns 403 unless the request
+  carries a valid Cloudflare Access JWT (see "Verifying the Access JWT" below); the page header shows
+  the signed-in email. `POST /r/:id/status` also rejects a cross-origin `Origin` header.
+  The route table is `src/routes.ts`.
 
 ## Client contract
 

@@ -1,6 +1,5 @@
 // Reports list: GET / (all projects) and GET /p/:project. Server-rendered, same CSP approach as page.ts.
-// Requires Cloudflare Access: the Access JWT is verified against the team certs (src/access.ts).
-import { accessDenied, verifyAccess } from './access'
+// Guarded by the deny-by-default router (routes.ts): the Access JWT is verified there (src/access.ts).
 import { refOf } from './email'
 import type { Env, ProjectRow, ReportRow } from './env'
 import { kindLabel, KIND_LABEL } from './steps'
@@ -132,10 +131,7 @@ function card(r: ReportRow, ref: string, now: number, back: string): string {
   return `<article class="card ${esc(sev)}"><div class="thumb"><img src="${thumb}" alt="" loading="lazy"></div><div class="body"><a class="title" href="${link}">${esc(truncate(r.title, 140))}</a><div class="l2"><span class="kind" style="--kc:${kc}">${esc(kindLabel(r.verdict_kind))}</span><span class="hl mono">${esc(r.verdict_headline ?? '')}</span></div>${r.user_saw ? `<div class="saw">User saw: &quot;${esc(truncate(r.user_saw, 160))}&quot;</div>` : ''}<div class="meta">${bits.join('<i class="muted">·</i>')}</div></div><div class="act"><span class="pill ${esc(r.status)}">${esc(statusLabel(r.status))}</span><div class="btns">${btn('seen', 'Seen')}${btn('fixed', 'Fixed')}</div></div></article>`
 }
 
-export async function handleList(req: Request, env: Env, projectId: string | null): Promise<Response> {
-  const user = await verifyAccess(req, env)
-  if (!user) return accessDenied()
-
+export async function handleList(req: Request, env: Env, projectId: string | null, user: { email: string }): Promise<Response> {
   const { results: projects } = await env.DB.prepare('SELECT * FROM projects ORDER BY name').all<ProjectRow>()
   const scope = projectId === null ? null : projects.find((p) => p.id === projectId)
   if (projectId !== null && !scope) return new Response('Not found', { status: 404, headers: { 'content-type': 'text/plain' } })

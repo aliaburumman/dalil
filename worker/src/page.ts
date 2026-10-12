@@ -1,6 +1,5 @@
 // Triage page: GET /r/:id, GET /r/:id/img/:part, POST /r/:id/status.
-// Assumed to sit behind Cloudflare Access (README); the Worker has no auth of its own.
-import { accessDenied, verifyAccess } from './access'
+// Every route here is guarded by the deny-by-default router (routes.ts); handlers receive the verified user.
 import { loadStored, refOf } from './email'
 import type { Env, ReportRow } from './env'
 import { getProject } from './ingest'
@@ -72,7 +71,6 @@ export async function handleReplay(env: Env, id: string): Promise<Response> {
 
 export async function handleStatus(req: Request, env: Env, id: string): Promise<Response> {
   // Same-origin check: a cheap CSRF guard on top of Access.
-  if (!(await verifyAccess(req, env))) return accessDenied()
   const origin = req.headers.get('origin')
   if (origin && origin !== new URL(req.url).origin) return new Response('Forbidden', { status: 403 })
   const row = await getReport(env, id)
@@ -184,7 +182,7 @@ document.querySelectorAll('button[data-copy]').forEach(function(b){b.addEventLis
 
 const TL_ICON: Record<string, string> = { nav: 'nav', click: 'click', input: 'input', submit: 'submit', request: 'req', error: 'err', log: 'log' }
 
-export async function handlePage(env: Env, id: string, req?: Request): Promise<Response> {
+export async function handlePage(env: Env, id: string, user: { email: string }): Promise<Response> {
   const row = await getReport(env, id)
   if (!row) return notFound()
   const project = await getProject(env, row.project_id)
@@ -192,7 +190,6 @@ export async function handlePage(env: Env, id: string, req?: Request): Promise<R
   const stored = await loadStored(env, row)
   const p = stored?.payload
   const nonce = crypto.randomUUID().replace(/-/g, '')
-  const user = req ? await verifyAccess(req, env) : null
   const { results: projects } = await env.DB.prepare('SELECT * FROM projects ORDER BY name').all<ProjectRow>()
   const now = Date.now()
   const sev = row.severity ?? 'minor'
@@ -204,7 +201,7 @@ export async function handlePage(env: Env, id: string, req?: Request): Promise<R
   h.push(`<meta name="color-scheme" content="light dark"><title>${esc(ref)} · ${esc(row.title)}</title><style>${BASE_CSS}${CSS}</style>`)
   if (row.has_replay) h.push(`<link rel="stylesheet" href="/assets/rrweb-player.${PLAYER_VERSION}.css">`)
   h.push(`</head><body>`)
-  h.push(topbar(projects, row.project_id, user?.email ?? null))
+  h.push(topbar(projects, row.project_id, user.email))
   h.push(`<main>`)
   h.push(`<div class="crumb"><a href="${esc(listHref)}">&larr; ${esc(project?.name ?? row.project_id)} reports</a></div>`)
   h.push(`<div class="head"><div class="l"><div class="refline"><span class="ref">${esc(ref)}</span><span class="pill ${esc(row.status)}">${esc(statusLabel(row.status))}</span><span class="sev ${esc(sev)}">${esc(SEV_LABEL[sev] ?? sev)}</span>${row.scrubbed ? '<span class="pill">scrubbed</span>' : ''}<span class="pill" title="Email status">email: ${esc(row.email_status)}</span></div>`)

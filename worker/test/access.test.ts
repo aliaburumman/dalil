@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetAccessCache } from '../src/access'
-import { ACCESS_VARS, AUD, BASE, call, certsResponse, seed, signJwt, TEAM, testEnv } from './helpers'
+import { ROUTES } from '../src/routes'
+import { ACCESS_VARS, accessHeaders, AUD, BASE, call, certsResponse, form, ingestRequest, ORIGIN, payload, seed, signJwt, TEAM, testEnv } from './helpers'
 
 beforeEach(async () => {
   resetAccessCache()
@@ -86,5 +87,77 @@ describe('Cloudflare Access verification', () => {
     expect(prod.status).toBe(403)
     const cfg: string = (await import('../wrangler.jsonc?raw')).default
     expect(cfg).not.toContain('DEV_NO_AUTH')
+  })
+})
+
+describe('deny by default', () => {
+  const authed = async (method: string, path: string, init: RequestInit = {}, base = BASE) =>
+    call(new Request(`${base}${path}`, { method, ...init, headers: { ...(await accessHeaders()), ...(init.headers as Record<string, string>) } }), testEnv(ACCESS_VARS))
+  const anon = (method: string, path: string, init: RequestInit = {}) => call(new Request(`${BASE}${path}`, { method, ...init }), testEnv(ACCESS_VARS))
+  const seedReport = async () => {
+    const res = await call(ingestRequest(form(payload({ severity: 'minor' }))))
+    return ((await res.json()) as { id: string }).id
+  }
+
+  it('every guarded route is 403 without a token and not 403 with one', async () => {
+    const id = await seedReport()
+    const concrete: [string, string][] = [
+      ['GET', '/'],
+      ['GET', '/p/space'],
+      ['GET', `/r/${id}`],
+      ['GET', `/r/${id}/img/image_0`],
+      ['GET', `/r/${id}/auto/0`],
+      ['GET', `/r/${id}/replay`],
+      ['POST', `/r/${id}/status`],
+    ]
+    const guarded = ROUTES.filter((r) => !r.public)
+    expect(guarded.length).toBeGreaterThan(0)
+    for (const r of guarded) {
+      const hits = concrete.filter(([m, p]) => m === r.method && r.pattern.test(p))
+      expect(hits, `a concrete path for ${r.method} ${r.pattern}`).toHaveLength(1)
+    }
+    for (const [method, path] of concrete) {
+      const init = method === 'POST' ? { body: new URLSearchParams({ status: 'seen' }) } : {}
+      const denied = await anon(method, path, init)
+      expect(denied.status, `${method} ${path} unauthenticated`).toBe(403)
+      expect((await authed(method, path, init)).status, `${method} ${path} authenticated`).not.toBe(403)
+    }
+  })
+
+  it('unknown paths and methods are 403 unauthenticated and 404 authenticated', async () => {
+    for (const path of ['/x', '/r', '/r/a/b/c', '/admin', '/v1/other']) {
+      for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {
+        expect((await anon(method, path)).status, `${method} ${path}`).toBe(403)
+      }
+      expect((await authed('GET', path)).status, `authed GET ${path}`).toBe(404)
+    }
+    expect((await anon('PUT', '/r/abc/status')).status).toBe(403)
+    expect((await anon('GET', '/assets/other.js')).status).toBe(403)
+  })
+
+  it('public routes need no token', async () => {
+    const pre = await anon('OPTIONS', '/v1/reports', { headers: { origin: ORIGIN, 'access-control-request-method': 'POST', 'access-control-request-headers': 'x-dalil-key,x-dalil-project' } })
+    expect(pre.status).toBe(204)
+    expect((await anon('GET', '/assets/rrweb-player.9.9.9.js')).status).not.toBe(403)
+    const put = await anon('PUT', '/v1/reports')
+    expect(put.status).toBe(405)
+    expect(put.headers.get('allow')).toBe('POST, OPTIONS')
+  })
+
+  it('DEV_NO_AUTH bypasses only on localhost, for guarded routes of every kind', async () => {
+    const env = testEnv({ ...ACCESS_VARS, DEV_NO_AUTH: '1' })
+    expect((await call(new Request(`${BASE}/anything`), env)).status).toBe(403)
+    expect((await call(new Request(`${BASE}/`), env)).status).toBe(403)
+    expect((await call(new Request('http://localhost:8799/'), env)).status).toBe(200)
+    expect((await call(new Request('http://localhost:8799/anything'), env)).status).toBe(404)
+  })
+
+  it('POST /r/:id/status rejects a foreign Origin and accepts its own', async () => {
+    const id = await seedReport()
+    const post = (origin?: string) =>
+      authed('POST', `/r/${id}/status`, { body: new URLSearchParams({ status: 'fixed' }), headers: origin ? { origin } : {} })
+    expect((await post('https://evil.test')).status).toBe(403)
+    expect((await post(new URL(BASE).origin)).status).toBe(303)
+    expect((await post()).status).toBe(303) // missing Origin allowed
   })
 })
