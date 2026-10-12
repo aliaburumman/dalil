@@ -5,6 +5,7 @@ import type { Env, ReportRow } from './env'
 import { getProject } from './ingest'
 import { AUTO_PART, IMAGE_PART } from './limits'
 import { PLAYER_VERSION } from './player-version'
+import { buildShare } from './share'
 import type { ProjectRow } from './env'
 import { failedRequests, failedRequestTitle, isFailedRequest, kindLabel, relTime, timelineHtml } from './steps'
 import { BASE_CSS, htmlHeaders, icon, KIND_COLOR, relAgo, safeNext, SEV_LABEL, statusLabel, topbar } from './ui'
@@ -178,6 +179,15 @@ document.querySelectorAll('button[data-copy]').forEach(function(b){b.addEventLis
   function fallback(){var r=document.createRange();r.selectNodeContents(pre);var s=window.getSelection();s.removeAllRanges();s.addRange(r);
     try{document.execCommand('copy');done()}catch(e){b.textContent='Press Ctrl+C'}}
   if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(done,fallback)}else{fallback()}
+})});
+document.querySelectorAll('button[data-copy-rich]').forEach(function(b){b.addEventListener('click',function(){
+  var tpl=document.getElementById(b.getAttribute('data-copy-rich'));var tx=document.getElementById(b.getAttribute('data-copy-text'));
+  if(!tpl||!tx)return;var html=tpl.innerHTML;var text=tx.textContent||'';
+  function done(){var o=b.innerHTML;b.textContent='Copied';setTimeout(function(){b.innerHTML=o},1500)}
+  function plain(){if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(text).then(done,function(){b.textContent='Press Ctrl+C'})}else{b.textContent='Press Ctrl+C'}}
+  if(navigator.clipboard&&window.isSecureContext&&window.ClipboardItem){
+    try{navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})})]).then(done,plain)}catch(e){plain()}
+  }else{plain()}
 })});`
 
 const TL_ICON: Record<string, string> = { nav: 'nav', click: 'click', input: 'input', submit: 'submit', request: 'req', error: 'err', log: 'log' }
@@ -202,13 +212,22 @@ export async function handlePage(env: Env, id: string, user: { email: string }):
   if (row.has_replay) h.push(`<link rel="stylesheet" href="/assets/rrweb-player.${PLAYER_VERSION}.css">`)
   h.push(`</head><body>`)
   h.push(topbar(projects, row.project_id, user.email))
+  const share = buildShare({
+    ref,
+    title: row.title,
+    verdict: { kind: row.verdict_kind, headline: row.verdict_headline },
+    events: p?.events,
+    pageUrl: row.page_url,
+    createdAt: row.created_at,
+    url: `${env.PUBLIC_BASE}/r/${row.id}`,
+  })
   h.push(`<main>`)
   h.push(`<div class="crumb"><a href="${esc(listHref)}">&larr; ${esc(project?.name ?? row.project_id)} reports</a></div>`)
   h.push(`<div class="head"><div class="l"><div class="refline"><span class="ref">${esc(ref)}</span><span class="pill ${esc(row.status)}">${esc(statusLabel(row.status))}</span><span class="sev ${esc(sev)}">${esc(SEV_LABEL[sev] ?? sev)}</span>${row.scrubbed ? '<span class="pill">scrubbed</span>' : ''}<span class="pill" title="Email status">email: ${esc(row.email_status)}</span></div>`)
   h.push(`<h1>${esc(row.title)}</h1>`)
   h.push(`<div class="verdict"><span class="kind" style="--kc:${kc}">${esc(kindLabel(row.verdict_kind))}</span>${row.verdict_headline ? `<span class="hl">${esc(row.verdict_headline)}</span>` : ''}${p?.verdict?.confidence ? `<span class="muted" style="font-size:12px">${esc(p.verdict.confidence)} confidence</span>` : ''}</div></div>`)
   h.push(
-    `<form class="statusform" method="post" action="/r/${esc(row.id)}/status"><label class="muted" for="st" style="font-size:12.5px">Status</label><select id="st" name="status">${STATUSES.map((s) => `<option value="${s}"${s === row.status ? ' selected' : ''}>${esc(statusLabel(s))}</option>`).join('')}</select><button class="btn primary" type="submit">Update</button></form></div>`,
+    `<form class="statusform" method="post" action="/r/${esc(row.id)}/status"><label class="muted" for="st" style="font-size:12.5px">Status</label><select id="st" name="status">${STATUSES.map((s) => `<option value="${s}"${s === row.status ? ' selected' : ''}>${esc(statusLabel(s))}</option>`).join('')}</select><button class="btn primary" type="submit">Update</button></form><div class="statusform"><button class="btn" type="button" data-copy="share-title">${icon('copy')} Copy title</button><button class="btn" type="button" data-copy-rich="share-html" data-copy-text="share-text">${icon('copy')} Copy repro steps</button></div><pre id="share-title" hidden>${esc(share.title)}</pre><pre id="share-text" hidden>${esc(share.text)}</pre><template id="share-html">${share.html}</template></div>`,
   )
   if (p?.verdict?.userSaw) h.push(`<div class="saw"><small>User saw</small>&quot;${esc(p.verdict.userSaw)}&quot;</div>`)
 

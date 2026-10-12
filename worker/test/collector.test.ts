@@ -101,6 +101,12 @@ describe('POST /v1/reports happy path', () => {
     expect(r1.headers.get('access-control-allow-origin')).toBe(ORIGIN)
     const b1 = (await r1.json()) as { id: string; ref: string; url: string }
     expect(b1.ref).toBe('SPACE-1')
+    const { share } = b1 as unknown as { share: { title: string; html: string; text: string } }
+    expect(share.title.startsWith('SPACE-1: ')).toBe(true)
+    expect(share.html).toContain('<ol>')
+    expect(share.html).toContain('POST /Payment/Create → 500 · X-Request-Id: req-111')
+    expect(share.text).toContain(`Full evidence: ${b1.url}`)
+    expect(share.html + share.text).not.toContain('curl')
     expect(b1.url).toBe(`${env.PUBLIC_BASE}/r/${b1.id}`)
 
     const r2 = await call(ingestRequest(form(payload())))

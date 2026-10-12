@@ -9,6 +9,7 @@ import {
   type Environment,
   type ReportContext,
   type ReportPayload,
+  type SubmitResult,
   type Severity,
   type Verdict,
 } from '../core'
@@ -40,6 +41,8 @@ export interface DialogProps extends Appearance {
   replay?: ReplayHandle | null
   onClose: () => void
   onToast: (message: string) => void
+  /** Submit succeeded: the host swaps this dialog for the Sent panel. */
+  onSent: (result: SubmitResult) => void
 }
 
 function formatDuration(ms: number): string {
@@ -89,7 +92,7 @@ function activeIn(node: Element | null): HTMLElement | null {
   return ((root && 'activeElement' in root ? root.activeElement : document.activeElement) as HTMLElement | null) ?? null
 }
 
-export function Dialog({ project, labels, dir, getContext, snap, screenshot, autoSnaps: initialAutos, replay, onClose, onToast, theme, accent, accentForeground }: DialogProps) {
+export function Dialog({ project, labels, dir, getContext, snap, screenshot, autoSnaps: initialAutos, replay, onClose, onToast, onSent, theme, accent, accentForeground }: DialogProps) {
   const ids = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const firstRef = useRef<HTMLTextAreaElement>(null)
@@ -264,8 +267,7 @@ export function Dialog({ project, labels, dir, getContext, snap, screenshot, aut
     ]
     try {
       const res = await submit(payload, uploads)
-      onToast(fmt(labels.sentAs, { ref: res.ref }))
-      onClose()
+      onSent(res)
     } catch (err) {
       if (err instanceof DalilSubmitError && err.code === 'queued') {
         onToast(labels.queued)

@@ -124,6 +124,18 @@ describe('deny by default', () => {
     }
   })
 
+  it('report page offers escaped copy-title and copy-repro buttons', async () => {
+    const res = await call(ingestRequest(form(payload({ title: '<script>alert(1)</script> x' }))))
+    const { id } = (await res.json()) as { id: string }
+    const page = await authed('GET', `/r/${id}`)
+    expect(page.status).toBe(200)
+    const html = await page.text()
+    expect(html).toContain('data-copy-rich="share-html"')
+    expect(html).toContain('data-copy="share-title"')
+    expect(html).toContain('<template id="share-html"><p><b>SPACE-1: &lt;script&gt;')
+    expect(html).not.toContain('<script>alert(1)')
+  })
+
   it('unknown paths and methods are 403 unauthenticated and 404 authenticated', async () => {
     for (const path of ['/x', '/r', '/r/a/b/c', '/admin', '/v1/other']) {
       for (const method of ['GET', 'POST', 'PUT', 'DELETE']) {

@@ -44,6 +44,8 @@ const CSS = `
 .dalil-summary summary{cursor:pointer;font-weight:600}
 .dalil-summary ul{margin:6px 0 0;padding-inline-start:18px;color:var(--dalil-muted)}
 .dalil-actions{display:flex;justify-content:flex-end;gap:8px}
+.dalil-sent{max-width:380px}
+.dalil-status{margin:0;min-height:1.4em;color:var(--dalil-muted)}
 .dalil-toast{position:fixed;inset-block-end:64px;inset-inline-end:16px;z-index:2147483002;background:var(--dalil-fg);color:var(--dalil-bg);padding:10px 14px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.3);max-width:calc(100vw - 32px)}
 .dalil-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 `

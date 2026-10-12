@@ -2,6 +2,7 @@
 import { deliverEmail, refOf, type StoredImage } from './email'
 import type { Env, ProjectRow, ReportRow } from './env'
 import { AUTO_PART, IMAGE_PART, LIMITS } from './limits'
+import { buildShare } from './share'
 import { type ReportPayload, SUPPORTED_VERSIONS, type SubmitResult } from './payload'
 import { checkRateLimits, takeReplaySlot } from './ratelimit'
 import { scrubSecrets } from './scrub'
@@ -298,7 +299,13 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
   }
 
   const ref = refOf(project, seq)
-  const result: SubmitResult = { id, ref, url: `${env.PUBLIC_BASE}/r/${id}` }
+  const url = `${env.PUBLIC_BASE}/r/${id}`
+  const result: SubmitResult = {
+    id,
+    ref,
+    url,
+    share: buildShare({ ref, title: payload.title, verdict: payload.verdict, events: payload.events, pageUrl: payload.env?.url, createdAt: now, url }),
+  }
 
   const row: ReportRow = {
     id,

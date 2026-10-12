@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { init, onOpen, snapshot, type DalilConfig } from '../core'
+import { init, onOpen, snapshot, type DalilConfig, type SubmitResult } from '../core'
 import { Button } from './Button'
 import type { DialogProps, DialogSnapshot } from './Dialog'
 import { defaultLabels, type Labels } from './labels'
 import { ensureStyles, type DalilTheme } from './styles'
 import type { ReplayHandle } from './replay'
+import { SentPanel } from './SentPanel'
 import { Toast } from './Toast'
 
 export interface DalilWidgetProps extends DalilConfig {
@@ -52,6 +53,12 @@ export function matchesShortcut(e: KeyboardEvent, shortcut: string): boolean {
   return (e.key || '').toLowerCase() === key || e.code.toLowerCase() === `key${key}`
 }
 
+// Phase machine:
+//
+//   idle --open()/shortcut--> capturing --chunks+screenshot--> open --submit ok--> sent --Done/Esc--> idle
+//     ^                          |  (chunk load fails)           |
+//     |                          v                               |-- Cancel/Esc/backdrop --> idle
+//     +--------------------- idle                                '-- queued | unreachable --> toast --> idle
 type State =
   | { phase: 'idle' }
   | { phase: 'capturing' }
@@ -63,6 +70,7 @@ type State =
       autoSnaps: ReturnType<typeof import('./autosnap').getAutoSnaps>
       replay: ReplayHandle | null
     }
+  | { phase: 'sent'; result: SubmitResult }
 
 export function DalilWidget(props: DalilWidgetProps) {
   const {
@@ -227,7 +235,11 @@ export function DalilWidget(props: DalilWidgetProps) {
             replay={state.replay}
             onClose={close}
             onToast={setToast}
+            onSent={(result) => setState({ phase: 'sent', result })}
           />
+        )}
+        {enabled && state.phase === 'sent' && (
+          <SentPanel result={state.result} labels={labels} dir={dir} {...appearance} onClose={close} />
         )}
         {toast && <Toast message={toast} dir={dir} {...appearance} onDone={clearToast} />}
       </>
