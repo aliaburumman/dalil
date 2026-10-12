@@ -8,7 +8,7 @@ import { type ReportPayload, SUPPORTED_VERSIONS, type SubmitResult } from './pay
 import { checkRateLimits, takeReplaySlot } from './ratelimit'
 import { scrubSecrets } from './scrub'
 import { failedRequests } from './steps'
-import { json, parseJsonArray, partKey, timingSafeEqual } from './util'
+import { evidenceUrl, json, parseJsonArray, partKey, timingSafeEqual } from './util'
 
 const REPLAY_PART = 'replay'
 
@@ -305,7 +305,7 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
     id,
     ref,
     url,
-    share: buildShare({ ref, title: payload.title, verdict: payload.verdict, events: payload.events, pageUrl: payload.env?.url, createdAt: now, url }),
+    share: buildShare({ ref, title: payload.title, verdict: payload.verdict, events: payload.events, pageUrl: payload.env?.url, createdAt: now, url: evidenceUrl(env.PUBLIC_BASE, id, !!replayBytes) }),
   }
 
   const row: ReportRow = {
@@ -345,7 +345,7 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
   if (env.NOTIFY_WEBHOOK_URL) {
     ctx.waitUntil(
       notifyTeams(env, result.share!, {
-        url,
+        url: evidenceUrl(env.PUBLIC_BASE, id, !!replayBytes),
         severity: payload.severity,
         verdict: payload.verdict.headline ?? null,
         page: payload.env?.url ?? null,
