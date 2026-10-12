@@ -21,6 +21,16 @@ export interface Env {
   EMAIL_ENABLED?: string
   /** DEV ONLY: "1" skips Access verification. Set only via `wrangler dev --var DEV_NO_AUTH:1`; never in wrangler.jsonc (a test enforces it). */
   DEV_NO_AUTH?: string
+  /** secret: Teams Workflows webhook URL; when set, each new report posts an Adaptive Card */
+  NOTIFY_WEBHOOK_URL?: string
+  /** Azure DevOps organisation, project and PAT (secret) enable the "Create work item" button */
+  ADO_ORG?: string
+  ADO_PROJECT?: string
+  ADO_PAT?: string
+  /** default 'Bug' */
+  ADO_WORK_ITEM_TYPE?: string
+  /** field that receives the repro steps (default 'Microsoft.VSTS.TCM.ReproSteps'; Basic process: 'System.Description') */
+  ADO_BODY_FIELD?: string
   /** secret: `wrangler secret put RESEND_API_KEY` */
   RESEND_API_KEY?: string
   /** static assets (vendored rrweb-player), see wrangler.jsonc "assets" */
@@ -61,6 +71,8 @@ export interface ReportRow {
   replay_dropped: number
   digested_at: number | null
   user_saw: string | null
+  /** null = none, 'pending:<epoch ms>' = being created (stale after 2 min), else the Azure DevOps work item URL */
+  workitem_url: string | null
 }
 
 export const DAY_MS = 86_400_000

@@ -30,8 +30,16 @@
     // Team domain: <team name>.cloudflareaccess.com; AUD: Access app -> Overview.
     "ACCESS_TEAM_DOMAIN": "<work-team>.cloudflareaccess.com",
     "ACCESS_AUD": "<work-access-aud-tag>"
+    // Azure DevOps work items (button on the report page). Enabled only when ADO_ORG, ADO_PROJECT and
+    // the ADO_PAT secret are all set.
+    // "ADO_ORG": "<ado-organization>",
+    // "ADO_PROJECT": "<ado-project>",
+    // "ADO_WORK_ITEM_TYPE": "Bug",
+    // Basic process has no ReproSteps field; use "System.Description" there.
+    // "ADO_BODY_FIELD": "Microsoft.VSTS.TCM.ReproSteps"
   },
   // Secrets (never in this file): npm run work:secret -- RESEND_API_KEY
+  //   NOTIFY_WEBHOOK_URL (Teams Workflows webhook), ADO_PAT (Azure DevOps PAT)
 
   "d1_databases": [
     {

@@ -2,6 +2,7 @@
 import { deliverEmail, refOf, type StoredImage } from './email'
 import type { Env, ProjectRow, ReportRow } from './env'
 import { AUTO_PART, IMAGE_PART, LIMITS } from './limits'
+import { notifyTeams } from './notify'
 import { buildShare } from './share'
 import { type ReportPayload, SUPPORTED_VERSIONS, type SubmitResult } from './payload'
 import { checkRateLimits, takeReplaySlot } from './ratelimit'
@@ -328,6 +329,7 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
     replay_dropped: replayDropped ? 1 : 0,
     digested_at: null,
     user_saw: null,
+    workitem_url: null,
   }
   // Immediate email: project in 'each' mode, or any blocker. A blocker keeps digested_at NULL so
   // it still shows in the next digest, flagged "already emailed" (email_status 'sent').
@@ -338,6 +340,18 @@ export async function handleIngest(req: Request, env: Env, ctx: ExecutionContext
     await env.DB.prepare(`UPDATE reports SET email_status = 'skipped', digested_at = ? WHERE id = ?`).bind(now, id).run()
   } else {
     await env.DB.prepare(`UPDATE reports SET email_status = 'digest' WHERE id = ?`).bind(id).run()
+  }
+
+  if (env.NOTIFY_WEBHOOK_URL) {
+    ctx.waitUntil(
+      notifyTeams(env, result.share!, {
+        url,
+        severity: payload.severity,
+        verdict: payload.verdict.headline ?? null,
+        page: payload.env?.url ?? null,
+        createdAt: now,
+      }),
+    )
   }
 
   return json(result, 201, cors)

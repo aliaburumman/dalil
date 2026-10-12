@@ -109,6 +109,7 @@ describe('deny by default', () => {
       ['GET', `/r/${id}/auto/0`],
       ['GET', `/r/${id}/replay`],
       ['POST', `/r/${id}/status`],
+      ['POST', `/r/${id}/workitem`],
     ]
     const guarded = ROUTES.filter((r) => !r.public)
     expect(guarded.length).toBeGreaterThan(0)

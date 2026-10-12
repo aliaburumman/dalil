@@ -1,10 +1,12 @@
 // Triage page: GET /r/:id, GET /r/:id/img/:part, POST /r/:id/status.
 // Every route here is guarded by the deny-by-default router (routes.ts); handlers receive the verified user.
+import { adoEnabled, ADO_ERRORS, AdoError as AdoErrorLike, createWorkItem } from './ado'
 import { loadStored, refOf } from './email'
 import type { Env, ReportRow } from './env'
 import { getProject } from './ingest'
 import { AUTO_PART, IMAGE_PART } from './limits'
 import { PLAYER_VERSION } from './player-version'
+import type { DalilEvent } from './payload'
 import { buildShare } from './share'
 import type { ProjectRow } from './env'
 import { failedRequests, failedRequestTitle, isFailedRequest, kindLabel, relTime, timelineHtml } from './steps'
@@ -83,6 +85,53 @@ export async function handleStatus(req: Request, env: Env, id: string): Promise<
   }
   await env.DB.prepare('UPDATE reports SET status = ? WHERE id = ?').bind(status, id).run()
   return new Response(null, { status: 303, headers: { location: safeNext(form?.get('next'), `/r/${id}`) } })
+}
+
+/** A work-item claim older than this is considered abandoned (the ADO call times out after 10 s). */
+const PENDING_TTL_MS = 120_000
+
+/** Share of a stored report (same text the Copy buttons and the work item use). */
+function shareOf(env: Env, row: ReportRow, ref: string, events: DalilEvent[] | undefined) {
+  return buildShare({
+    ref,
+    title: row.title,
+    verdict: { kind: row.verdict_kind, headline: row.verdict_headline },
+    events,
+    pageUrl: row.page_url,
+    createdAt: row.created_at,
+    url: `${env.PUBLIC_BASE}/r/${row.id}`,
+  })
+}
+
+export async function handleWorkItem(req: Request, env: Env, id: string): Promise<Response> {
+  const origin = req.headers.get('origin')
+  if (origin && origin !== new URL(req.url).origin) return new Response('Forbidden', { status: 403 })
+  if (!adoEnabled(env)) return notFound()
+  const row = await getReport(env, id)
+  if (!row) return notFound()
+  const back = `/r/${row.id}`
+  // Claim first so a double click (or two people) creates exactly one work item.
+  const now = Date.now()
+  const mine = `pending:${now}`
+  const claim = await env.DB.prepare(
+    `UPDATE reports SET workitem_url = ?1 WHERE id = ?2 AND (workitem_url IS NULL OR (workitem_url LIKE 'pending:%' AND CAST(substr(workitem_url, 9) AS INTEGER) < ?3))`,
+  )
+    .bind(mine, row.id, now - PENDING_TTL_MS)
+    .run()
+  if (!claim.meta.changes) return new Response(null, { status: 303, headers: { location: back } })
+  try {
+    const project = await getProject(env, row.project_id)
+    const stored = await loadStored(env, row)
+    const share = shareOf(env, row, project ? refOf(project, row.seq) : `#${row.seq}`, stored?.payload.events)
+    const url = await createWorkItem(env, share, `${env.PUBLIC_BASE}/r/${row.id}`)
+    await env.DB.prepare('UPDATE reports SET workitem_url = ? WHERE id = ? AND workitem_url = ?').bind(url, row.id, mine).run()
+    return new Response(null, { status: 303, headers: { location: back } })
+  } catch (err) {
+    await env.DB.prepare(`UPDATE reports SET workitem_url = NULL WHERE id = ? AND workitem_url = ?`).bind(row.id, mine).run()
+    const code = err instanceof AdoErrorLike ? err.code : 'unavailable'
+    if (!(err instanceof AdoErrorLike)) console.error(`dalil: work item for ${row.id} failed: ${String(err)}`)
+    return new Response(null, { status: 303, headers: { location: `${back}?wi_error=${code}` } })
+  }
 }
 
 const CSS = `
@@ -192,7 +241,15 @@ document.querySelectorAll('button[data-copy-rich]').forEach(function(b){b.addEve
 
 const TL_ICON: Record<string, string> = { nav: 'nav', click: 'click', input: 'input', submit: 'submit', request: 'req', error: 'err', log: 'log' }
 
-export async function handlePage(env: Env, id: string, user: { email: string }): Promise<Response> {
+function workItemControl(env: Env, row: ReportRow): string {
+  if (!adoEnabled(env)) return ''
+  const w = row.workitem_url
+  if (w?.startsWith('pending:') && Date.now() - Number(w.slice(8)) < PENDING_TTL_MS) return `<span class="muted" style="font-size:12.5px">Creating work item…</span>`
+  if (w && !w.startsWith('pending:')) return `<a class="btn" href="${esc(w)}" target="_blank" rel="noopener">Work item ↗</a>`
+  return `<form method="post" action="/r/${esc(row.id)}/workitem" style="display:inline"><button class="btn" type="submit">Create work item</button></form>`
+}
+
+export async function handlePage(env: Env, id: string, user: { email: string }, wiError?: string | null): Promise<Response> {
   const row = await getReport(env, id)
   if (!row) return notFound()
   const project = await getProject(env, row.project_id)
@@ -212,22 +269,15 @@ export async function handlePage(env: Env, id: string, user: { email: string }):
   if (row.has_replay) h.push(`<link rel="stylesheet" href="/assets/rrweb-player.${PLAYER_VERSION}.css">`)
   h.push(`</head><body>`)
   h.push(topbar(projects, row.project_id, user.email))
-  const share = buildShare({
-    ref,
-    title: row.title,
-    verdict: { kind: row.verdict_kind, headline: row.verdict_headline },
-    events: p?.events,
-    pageUrl: row.page_url,
-    createdAt: row.created_at,
-    url: `${env.PUBLIC_BASE}/r/${row.id}`,
-  })
+  const share = shareOf(env, row, ref, p?.events)
   h.push(`<main>`)
+  if (wiError && adoEnabled(env) && Object.hasOwn(ADO_ERRORS, wiError)) h.push(`<p class="saw" role="alert"><small>Work item</small>${esc(ADO_ERRORS[wiError])}</p>`)
   h.push(`<div class="crumb"><a href="${esc(listHref)}">&larr; ${esc(project?.name ?? row.project_id)} reports</a></div>`)
   h.push(`<div class="head"><div class="l"><div class="refline"><span class="ref">${esc(ref)}</span><span class="pill ${esc(row.status)}">${esc(statusLabel(row.status))}</span><span class="sev ${esc(sev)}">${esc(SEV_LABEL[sev] ?? sev)}</span>${row.scrubbed ? '<span class="pill">scrubbed</span>' : ''}<span class="pill" title="Email status">email: ${esc(row.email_status)}</span></div>`)
   h.push(`<h1>${esc(row.title)}</h1>`)
   h.push(`<div class="verdict"><span class="kind" style="--kc:${kc}">${esc(kindLabel(row.verdict_kind))}</span>${row.verdict_headline ? `<span class="hl">${esc(row.verdict_headline)}</span>` : ''}${p?.verdict?.confidence ? `<span class="muted" style="font-size:12px">${esc(p.verdict.confidence)} confidence</span>` : ''}</div></div>`)
   h.push(
-    `<form class="statusform" method="post" action="/r/${esc(row.id)}/status"><label class="muted" for="st" style="font-size:12.5px">Status</label><select id="st" name="status">${STATUSES.map((s) => `<option value="${s}"${s === row.status ? ' selected' : ''}>${esc(statusLabel(s))}</option>`).join('')}</select><button class="btn primary" type="submit">Update</button></form><div class="statusform"><button class="btn" type="button" data-copy="share-title">${icon('copy')} Copy title</button><button class="btn" type="button" data-copy-rich="share-html" data-copy-text="share-text">${icon('copy')} Copy repro steps</button></div><pre id="share-title" hidden>${esc(share.title)}</pre><pre id="share-text" hidden>${esc(share.text)}</pre><template id="share-html">${share.html}</template></div>`,
+    `<form class="statusform" method="post" action="/r/${esc(row.id)}/status"><label class="muted" for="st" style="font-size:12.5px">Status</label><select id="st" name="status">${STATUSES.map((s) => `<option value="${s}"${s === row.status ? ' selected' : ''}>${esc(statusLabel(s))}</option>`).join('')}</select><button class="btn primary" type="submit">Update</button></form><div class="statusform"><button class="btn" type="button" data-copy="share-title">${icon('copy')} Copy title</button><button class="btn" type="button" data-copy-rich="share-html" data-copy-text="share-text">${icon('copy')} Copy repro steps</button>${workItemControl(env, row)}</div><pre id="share-title" hidden>${esc(share.title)}</pre><pre id="share-text" hidden>${esc(share.text)}</pre><template id="share-html">${share.html}</template></div>`,
   )
   if (p?.verdict?.userSaw) h.push(`<div class="saw"><small>User saw</small>&quot;${esc(p.verdict.userSaw)}&quot;</div>`)
 

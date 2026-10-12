@@ -98,7 +98,7 @@ The same code deploys to a second Cloudflare account with no fork; only the conf
   here. Wrangler resolves `main`, `assets.directory` and `migrations_dir` relative to the config file,
   so in the private copy point them at this checkout (see the comment in the template).
 - **Commands** (`scripts/work.mjs` resolves the config and fails with a clear message if it is missing):
-  `npm run work:deploy`, `npm run work:migrate` (D1 `dalil` `--remote`), `npm run work:secret -- RESEND_API_KEY`,
+  `npm run work:deploy`, `npm run work:migrate` (D1 binding `DB`, `--remote`), `npm run work:secret -- RESEND_API_KEY`,
   `npm run work:tail`. Extra args pass through, e.g. `npm run work:deploy -- --dry-run`.
 - **Vars** (all optional, in `vars`):
 
@@ -108,6 +108,17 @@ The same code deploys to a second Cloudflare account with no fork; only the conf
 | `DIGEST_CRON` | `0 6,18 * * *` | Cron string that triggers the digest; must equal that entry in `triggers.crons`. Crons are UTC, so a DST zone drifts 1 h |
 | `EMAIL_ENABLED` | `1` | `0` disables all outbound email: reports are stored with `email_status = 'skipped'`, and the digest marks rows `digested_at` so they do not pile up. With `1` and no `RESEND_API_KEY`, sends are `failed` as before |
 
+- **Teams notification** (optional): `npm run work:secret -- NOTIFY_WEBHOOK_URL` with the URL of a Teams
+  **Workflows** webhook (Power Automate trigger "When a Teams webhook request is received", then a
+  "Post card in a chat or channel" step; classic O365 connector webhooks are retired). After each stored
+  report the Worker POSTs an Adaptive Card (title, severity + verdict, page/time, "Open report" button).
+  Best effort: 5 s timeout, no retry, a failure is logged and never affects the report. Independent of `EMAIL_ENABLED`.
+- **Azure DevOps work items** (optional): vars `ADO_ORG`, `ADO_PROJECT`, optional `ADO_WORK_ITEM_TYPE`
+  (default `Bug`) and `ADO_BODY_FIELD` (default `Microsoft.VSTS.TCM.ReproSteps`; the Basic process has no
+  such field, use `System.Description`), plus the secret `npm run work:secret -- ADO_PAT`. The PAT needs
+  scope **Work Items: Read & write**. The feature is on only when `ADO_ORG`, `ADO_PROJECT` and `ADO_PAT` are
+  all set; then a "Create work item" button appears on the report page (once per report; afterwards a
+  "Work item" link). Needs migration `0004_workitem.sql` (`npm run work:migrate`).
 - **Access**: use a self-hosted Access application with **Microsoft Entra ID** as the identity provider.
   It must **bypass** `/v1/reports*` (ingest from tester browsers) and `/assets/*` (player files); every
   other path stays behind Access, and the Worker still verifies the JWT (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`).
