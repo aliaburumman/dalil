@@ -80,6 +80,12 @@ describe('dalil/web', () => {
     expect(document.getElementById('dalil-styles')).toBeNull()
   })
 
+  it('update() before init() is queued and wins over the init config', async () => {
+    update({ enabled: true })
+    await act(async () => init({ ...cfg, enabled: false }))
+    expect(fab()).not.toBeNull()
+  })
+
   it('update({enabled:false}) hides the button; update re-enables', async () => {
     await act(async () => init({ ...cfg }))
     await act(async () => update({ enabled: false }))

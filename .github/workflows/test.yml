@@ -51,3 +51,47 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run e2e:copy
       - run: npm run e2e:ado
+
+  frameworks:
+    name: e2e ${{ matrix.app }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { app: angular-ssr, script: e2e-angular.mjs }
+          - { app: angular-ngmodule, script: e2e-angular.mjs }
+          - { app: angular-zoneless, script: e2e-angular.mjs }
+          - { app: next-app, script: e2e-next.mjs }
+          - { app: next-pages, script: e2e-next.mjs }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            examples/${{ matrix.app }}/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: node scripts/${{ matrix.script }} --app ${{ matrix.app }}
+
+  angular-zone-cost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm install --no-audit --no-fund
+        working-directory: examples/angular
+      - run: npx ng build
+        working-directory: examples/angular
+      - run: npx playwright install --with-deps chromium
+        working-directory: examples/angular
+      - run: node examples/angular/e2e.mjs

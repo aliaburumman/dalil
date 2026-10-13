@@ -17,6 +17,7 @@ export type DalilWebConfig = Omit<DalilWidgetProps, 'styleRoot' | 'enabled'> & {
 let current: DalilWebConfig | null = null
 let host: ShadowHost | null = null
 let root: Root | null = null
+let pending: Partial<DalilWebConfig> = {}
 let mountPending = false
 let onReady: (() => void) | null = null
 
@@ -41,6 +42,9 @@ export function init(config: DalilWebConfig): void {
     update(config)
     return
   }
+  // update() calls made before init() happened later in app time, so they win over the init config.
+  config = { ...config, ...pending }
+  pending = {}
   current = { ...config }
   coreInit({ ...(config as DalilConfig), getContext: () => current?.getContext?.() ?? {} })
   if (typeof document === 'undefined') return
@@ -53,7 +57,10 @@ export function init(config: DalilWebConfig): void {
 
 /** Merge new props at runtime (login/logout, language switch, theme). */
 export function update(partial: Partial<DalilWebConfig>): void {
-  if (!current) return
+  if (!current) {
+    pending = { ...pending, ...partial }
+    return
+  }
   current = { ...current, ...partial }
   render()
 }
@@ -72,4 +79,5 @@ export function destroy(): void {
   root?.unmount()
   host?.destroy()
   root = host = current = null
+  pending = {}
 }

@@ -4,7 +4,10 @@
   "description": "Drop-in 'Report a bug' for any web app (React, Angular, Vue, plain HTML): steps, screenshots, FE/BE verdict and a safe curl, sent to your own collector.",
   "license": "MIT",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/chunk-*.js",
+    "./dist/dalil.global.js"
+  ],
   "files": [
     "dist"
   ],

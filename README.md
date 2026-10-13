@@ -227,7 +227,7 @@ No React needed. One script tag, or `import { init } from 'dalil/web'`. The UI r
 </script>
 ```
 
-API: `init(config)` (idempotent; the recorder starts immediately, the UI mounts after `DOMContentLoaded`), `update(partial)` (enabled, getContext, labels, dir, theme, accent at runtime), `open()`, `log(msg, data?, level?)`, `destroy()`. The CDN build is about 58 KB gzipped (Preact, replay and screenshots inlined). The ESM entry is about 27 KB gzipped up front and loads replay, screenshots and the dialog lazily.
+API: `init(config)` (idempotent; the recorder starts immediately, the UI mounts after `DOMContentLoaded`), `update(partial)` (enabled, getContext, labels, dir, theme, accent at runtime; a call made before `init()` is queued and applied when `init()` runs, over the `init` config, because it happened later in app time), `open()`, `log(msg, data?, level?)`, `destroy()`. The CDN build is about 58 KB gzipped (Preact, replay and screenshots inlined). The ESM entry is about 27 KB gzipped up front and loads replay, screenshots and the dialog lazily.
 
 Try it: `examples/plain-html/index.html`. Start the mock API (`node examples/angular/mock-server.mjs`, answers 500 on port 4300), serve the repo root with any static server (`npx serve .`) and open `/examples/plain-html/`; the two buttons fire a failing fetch and a failing XHR. `node examples/plain-html/e2e.mjs` runs the same check headless.
 
