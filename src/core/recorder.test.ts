@@ -255,6 +255,20 @@ describe('history, errors, log, emitter', () => {
     expect(nav.at(-1)).toMatchObject({ url: '/players?token=[REDACTED]&page=2' })
   })
 
+  it('skips a re-encoded replaceState of the same page, but records a real change', () => {
+    __resetForTests()
+    init({ project: 'p', publicKey: 'k', endpoint: 'https://c.test' } as never)
+    history.pushState({}, '', '/list?a=b+c')
+    history.replaceState({}, '', '/list?a=b%20c')
+    const count = () => snapshot().events.filter((e) => e.type === 'nav' && e.url.startsWith('/list')).length
+    expect(count()).toBe(1)
+    history.pushState({}, '', '/path?x=1%2F2')
+    history.replaceState({}, '', '/path?x=1/2?')
+    history.pushState({}, '', '/list?a=other')
+    expect(snapshot().events.filter((e) => e.type === 'nav' && e.url.startsWith('/path')).length).toBe(1)
+    expect(count()).toBe(2)
+  })
+
   it('wraps console.error and redacts it', () => {
     const spy = vi.fn()
     __resetForTests()

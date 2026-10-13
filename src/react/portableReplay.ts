@@ -27,16 +27,11 @@ export interface PlayerAssets {
 
 let cached: { key: string; assets: PlayerAssets } | null = null
 
+declare const __DALIL_IIFE__: boolean | undefined
+
 function candidates(playerUrl?: string): string[] {
   const out: string[] = []
   if (playerUrl) out.push(playerUrl.endsWith('/') ? playerUrl : `${playerUrl}/`)
-  try {
-    // ESM builds: the chunk sits in dist/, assets in dist/assets/.
-    const metaUrl = (import.meta as { url?: string }).url
-    if (metaUrl) out.push(new URL('./assets/', metaUrl).href)
-  } catch {
-    /* IIFE build: import.meta is empty */
-  }
   const script = getScriptUrl()
   if (script) {
     try {
@@ -48,25 +43,52 @@ function candidates(playerUrl?: string): string[] {
   return out
 }
 
-async function getText(url: string): Promise<string> {
+/** Fetched text that is really an SPA fallback page (HTML with status 200) is rejected. */
+async function getText(url: string, kind: 'js' | 'css'): Promise<string> {
   const res = await adoFetch()(url, { signal: AbortSignal.timeout(15_000) })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if ((res.headers?.get('content-type') ?? '').toLowerCase().includes('text/html')) throw new Error('html')
   const text = await res.text()
   if (!text) throw new Error('empty')
+  if (text.trimStart().startsWith('<')) throw new Error('html')
+  if (kind === 'js' && !text.includes('rrwebPlayer')) throw new Error('not the player')
   return text
 }
 
-/** Player JS + CSS text via the original fetch, or null when none of the locations works (CSP, offline). */
+async function fetchFrom(base: string): Promise<PlayerAssets> {
+  const [js, css] = await Promise.all([getText(new URL(JS_NAME, base).href, 'js'), getText(new URL(CSS_NAME, base).href, 'css')])
+  return { js, css }
+}
+
+/** Player JS + CSS text: explicit playerUrl, then the bundled chunk (ESM builds), then ./assets/ next to the script. */
 export async function loadPlayerAssets(playerUrl?: string): Promise<PlayerAssets | null> {
-  for (const base of candidates(playerUrl)) {
+  const bases = candidates(playerUrl)
+  const explicit = playerUrl ? bases.shift() : undefined
+  const tryFetch = async (base: string): Promise<PlayerAssets | null> => {
     if (cached?.key === base) return cached.assets
     try {
-      const [js, css] = await Promise.all([getText(new URL(JS_NAME, base).href), getText(new URL(CSS_NAME, base).href)])
-      cached = { key: base, assets: { js, css } }
-      return cached.assets
+      const assets = await fetchFrom(base)
+      cached = { key: base, assets }
+      return assets
     } catch {
-      /* try the next location */
+      return null
     }
+  }
+  if (explicit) {
+    const got = await tryFetch(explicit)
+    if (got) return got
+  }
+  if (typeof __DALIL_IIFE__ === 'undefined' || !__DALIL_IIFE__) {
+    try {
+      const m = await import('./playerAssets.generated')
+      return { js: m.PLAYER_JS, css: m.PLAYER_CSS }
+    } catch {
+      /* fall through to ./assets/ */
+    }
+  }
+  for (const base of bases) {
+    const got = await tryFetch(base)
+    if (got) return got
   }
   return null
 }

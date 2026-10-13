@@ -786,10 +786,23 @@ function currentUrl(): string {
   return redactUrl(location.pathname + location.search, extraKeys())
 }
 
+function safeDecode(s: string): string {
+  try { return decodeURIComponent(s) } catch { return s }
+}
+
+/** Same page regardless of how the router re-encoded it (%20 vs +, %2F vs /, trailing ?). */
+function normNav(url: string): string {
+  url = url.replace(/\?+$/, '')
+  const q = url.indexOf('?')
+  const path = q < 0 ? url : url.slice(0, q)
+  const query = q < 0 ? '' : url.slice(q + 1).replace(/\+/g, ' ')
+  return safeDecode(path) + (query ? '?' + safeDecode(query) : '')
+}
+
 function recordNav() {
   safe(() => {
     const url = currentUrl()
-    if (url === lastNavUrl) return
+    if (url === lastNavUrl || (lastNavUrl !== undefined && normNav(url) === normNav(lastNavUrl))) return
     push({ type: 'nav', url, from: lastNavUrl })
     lastNavUrl = url
   })

@@ -2,6 +2,7 @@ import { Component, NgZone, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { ToastrService } from 'ngx-toastr';
 import { update } from 'dalil/web';
+import { mode } from './dalil.config';
 
 @Component({
   selector: 'app-root',
@@ -28,7 +29,7 @@ export class App {
     // update() mounts/unmounts the widget, which registers listeners and observers, so it
     // too must run outside Angular's zone (the ?inzone=1 comparison keeps it inside).
     const run = (inZone: boolean) => (inZone ? (f: () => void) => f() : (f: () => void) => this.zone.runOutsideAngular(f));
-    run(new URLSearchParams(location.search).has('inzone'))(() =>
+    run(mode() === 'inzone')(() =>
       update({ enabled, getContext: () => ({ userId: 'u1', userName: 'Demo user', tenant: 'Example' }) }),
     );
   }

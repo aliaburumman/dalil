@@ -4,7 +4,10 @@
   "description": "Drop-in 'Report a bug' for any web app (React, Angular, Vue, plain HTML): steps, screenshots, FE/BE verdict and a safe curl, sent to your own collector.",
   "license": "MIT",
   "type": "module",
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/chunk-*.js",
+    "./dist/dalil.global.js"
+  ],
   "files": [
     "dist"
   ],
@@ -20,26 +23,46 @@
     "./web": {
       "types": "./dist/web/index.d.ts",
       "import": "./dist/web/index.js"
+    },
+    "./angular": {
+      "types": "./dist/angular/index.d.ts",
+      "import": "./dist/angular/index.js"
+    },
+    "./next": {
+      "types": "./dist/next/index.d.ts",
+      "import": "./dist/next/index.js"
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsup",
+    "build": "rm -rf dist && tsup && npm run check:dist",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node scripts/gen-player.mjs && tsc --noEmit",
     "demo": "vite demo",
     "e2e:copy": "node scripts/e2e-copy.mjs",
     "build:ado-site": "node scripts/build-ado-site.mjs",
-    "e2e:ado": "npm run build:ado-site && node scripts/e2e-ado.mjs"
+    "e2e:ado": "npm run build:ado-site && node scripts/e2e-ado.mjs",
+    "gen:player": "node scripts/gen-player.mjs",
+    "prebuild": "node scripts/gen-player.mjs",
+    "pretest": "node scripts/gen-player.mjs",
+    "check:dist": "node -e \"const fs=require('fs');for(const f of ['react','next']){if(!fs.readFileSync('dist/'+f+'/index.js','utf8').startsWith('\\\"use client\\\"')){console.error('dist/'+f+'/index.js must start with the use client directive');process.exit(1)}}\""
   },
   "peerDependencies": {
     "react": ">=18",
-    "react-dom": ">=18"
+    "react-dom": ">=18",
+    "@angular/core": ">=16",
+    "@angular/common": ">=16"
   },
   "peerDependenciesMeta": {
     "react": {
       "optional": true
     },
     "react-dom": {
+      "optional": true
+    },
+    "@angular/core": {
+      "optional": true
+    },
+    "@angular/common": {
       "optional": true
     }
   },
@@ -49,6 +72,8 @@
     "preact": "^11.0.1"
   },
   "devDependencies": {
+    "@angular/common": "^20.3.33",
+    "@angular/core": "^20.3.33",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.3.0",
@@ -59,6 +84,7 @@
     "playwright": "1.64.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "rxjs": "^7.8.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vite": "^8.3.4",

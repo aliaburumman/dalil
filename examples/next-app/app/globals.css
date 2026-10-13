@@ -1,0 +1,2 @@
+body { font-family: system-ui, sans-serif; margin: 24px; }
+.toast-error { margin-top: 12px; padding: 8px 12px; background: #fde2e2; color: #7a1010; border-radius: 6px; }

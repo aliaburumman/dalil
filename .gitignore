@@ -4,3 +4,4 @@ dist
 .dev.vars
 *.log
 site
+src/react/playerAssets.generated.ts

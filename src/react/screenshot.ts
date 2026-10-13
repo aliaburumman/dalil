@@ -2,6 +2,7 @@
 // is about to open (or preloaded on hover/focus/shortcut).
 import { toJpeg } from 'html-to-image'
 import { internalInit } from '../core'
+import { addDocumentStyle } from './cspNonce'
 
 const BUDGET_MS = 4000
 const MASK_CLASS = 'dalil-capturing'
@@ -126,15 +127,10 @@ export async function captureScreenshot(opts: CaptureOptions = {}): Promise<stri
   const w = window.innerWidth
   const h = window.innerHeight
   const scale = auto ? Math.min(1, 1280 / Math.max(w, 1)) : 1
-  const style = document.createElement('style')
-  style.id = MASK_STYLE_ID
-  style.setAttribute('data-dalil-ignore', '')
-  style.textContent = (auto ? '' : MASK_CSS) + XO_CSS
-  let styleAttached = false
+  const css = (auto ? '' : MASK_CSS) + XO_CSS
+  let detach: (() => void) | undefined
   const attach = () => {
-    if (styleAttached) return
-    document.head.appendChild(style)
-    styleAttached = true
+    if (!detach) detach = addDocumentStyle(css, MASK_STYLE_ID)
   }
   let untag: (() => void) | undefined
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -196,6 +192,6 @@ export async function captureScreenshot(opts: CaptureOptions = {}): Promise<stri
     if (timer) clearTimeout(timer)
     untag?.()
     if (!auto) root.classList.remove(MASK_CLASS)
-    if (styleAttached) style.remove()
+    detach?.()
   }
 }

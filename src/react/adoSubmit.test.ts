@@ -5,6 +5,18 @@ import { crc32 } from '../core/zip'
 import { __resetPlayerCacheForTests } from './portableReplay'
 import { buildEvidenceZip, prepareAdoReport, sendAdoReport } from './adoSubmit'
 
+// The bundled player is also unavailable when a test simulates "cannot load".
+const bundle = vi.hoisted(() => ({ ok: true }))
+vi.mock('./playerAssets.generated', () => ({
+  get PLAYER_JS() {
+    if (!bundle.ok) throw new Error('no bundle')
+    return 'window.rrwebPlayer=1'
+  },
+  get PLAYER_CSS() {
+    return '.css{}'
+  },
+}))
+
 const PAT = 'sup3rS3cretPAT0123456789'
 const BASIC = btoa(`:${PAT}`)
 const dest: AdoDestination = { type: 'azure-devops', org: 'acme', project: 'Web', areaPath: 'Web\\QA', tags: ['qa'] }
@@ -53,6 +65,7 @@ beforeEach(() => {
   delays = {}
   createStatus = 200
   playerOk = true
+  bundle.ok = true
   netDown = false
   __resetPlayerCacheForTests()
   logs.length = 0
@@ -107,6 +120,7 @@ describe('prepareAdoReport', () => {
 
   it('falls back to the raw gz when the player cannot load', async () => {
     playerOk = false
+    bundle.ok = false
     const p = await prep()
     expect(p.replay!.portable).toBe(false)
     expect(p.replay!.name).toBe('replay-20261012-083000.json.gz')
@@ -152,6 +166,7 @@ describe('sendAdoReport', () => {
 
   it('attaches the raw gz with a note when the player was unavailable', async () => {
     playerOk = false
+    bundle.ok = false
     await sendAdoReport({ prepared: await prep(), dest, pat: PAT })
     const create = calls.find((c) => c.url.includes('/wit/workitems/$Bug'))!
     expect(String(create.body)).toContain('Replay recording attached (open with the Dalil player)')
