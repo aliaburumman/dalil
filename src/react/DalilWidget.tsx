@@ -7,6 +7,7 @@ import { defaultLabels, pick, type Labels } from './labels'
 import { ensureStyles, type DalilTheme } from './styles'
 import type { ReplayHandle } from './replay'
 import { SentPanel } from './SentPanel'
+import { setCspNonce } from './cspNonce'
 import { Toast } from './Toast'
 
 export interface DalilWidgetProps extends DalilConfig {
@@ -126,6 +127,7 @@ export function DalilWidget(props: DalilWidgetProps) {
   }, [])
 
   useEffect(() => {
+    setCspNonce(cspNonce)
     ensureStyles(styleRoot, cspNonce)
   }, [styleRoot, cspNonce])
 
