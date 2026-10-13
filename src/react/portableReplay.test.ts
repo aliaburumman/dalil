@@ -50,21 +50,41 @@ describe('buildPortableReplay', () => {
 })
 
 describe('loadPlayerAssets', () => {
+  const js = 'window.rrwebPlayer=function(){}'
+  const fetchWith = (fn: (u: string) => Response) =>
+    (window.fetch = vi.fn(async (u: RequestInfo | URL) => fn(String(u))) as unknown as typeof fetch)
+
   it('fetches js + css from playerUrl with the original fetch', async () => {
     const urls: string[] = []
-    window.fetch = vi.fn(async (u: RequestInfo | URL) => {
-      urls.push(String(u))
-      return new Response(String(u).endsWith('.js') ? 'JS' : 'CSS')
-    }) as unknown as typeof fetch
+    fetchWith((u) => {
+      urls.push(u)
+      return new Response(u.endsWith('.js') ? js : '.rr{}')
+    })
     const got = await loadPlayerAssets('https://cdn.test/dalil')
-    expect(got).toEqual({ js: 'JS', css: 'CSS' })
+    expect(got).toEqual({ js, css: '.rr{}' })
     expect(urls.sort()).toEqual(['https://cdn.test/dalil/rrweb-player.2.1.7.css', 'https://cdn.test/dalil/rrweb-player.2.1.7.js'])
   })
 
-  it('returns null when the player cannot be loaded', async () => {
-    window.fetch = vi.fn(async () => {
-      throw new TypeError('blocked by CSP')
-    }) as unknown as typeof fetch
-    expect(await loadPlayerAssets('https://nowhere.test/x/')).toBeNull()
+  it('rejects an SPA fallback (HTML with status 200) and falls back to the bundled player', async () => {
+    fetchWith(() => new Response('<!doctype html><html></html>', { headers: { 'content-type': 'text/html' } }))
+    const got = await loadPlayerAssets('https://spa.test/x/')
+    expect(got!.js).toContain('rrwebPlayer')
+    expect(got!.js.trimStart().startsWith('<')).toBe(false)
+  })
+
+  it('rejects html-looking bodies and JS without the player marker', async () => {
+    fetchWith((u) => new Response(u.endsWith('.js') ? 'console.log(1)' : '.a{}'))
+    expect((await loadPlayerAssets('https://x.test/a/'))!.js).toContain('rrwebPlayer')
+    fetchWith((u) => new Response(u.endsWith('.js') ? js : '  <html>'))
+    const got = await loadPlayerAssets('https://x.test/b/')
+    expect(got!.css).not.toContain('<html>')
+  })
+
+  it('uses the bundled chunk when no playerUrl is given (ESM)', async () => {
+    const f = fetchWith(() => new Response('nope', { status: 404 }))
+    const got = await loadPlayerAssets()
+    expect(got!.js).toContain('rrwebPlayer')
+    expect(got!.css.length).toBeGreaterThan(100)
+    expect(f).not.toHaveBeenCalled()
   })
 })

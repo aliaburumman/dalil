@@ -54,32 +54,56 @@ CSP: `connect-src 'self' https://dalil.example.com https://img.example.com` (col
 
 ### Angular
 
-No Angular package is needed; use `dalil/web`. Run it **outside Angular's zone**, otherwise the recorder's timers, MutationObservers and listeners trigger a change-detection cycle on every event.
+`dalil/angular` (Angular 16+) starts Dalil in the browser only, after the app boots, **outside the zone**, and tears it down when the app is destroyed. `@angular/core` and `@angular/common` are optional peers.
 
 ```ts
-// main.ts
-import { NgZone } from '@angular/core'
+// main.ts (standalone)
 import { bootstrapApplication } from '@angular/platform-browser'
-import { init } from 'dalil/web'
+import { provideDalil } from 'dalil/angular'
 
-bootstrapApplication(App, appConfig).then((appRef) => {
-  appRef.injector.get(NgZone).runOutsideAngular(() =>
-    init({
+bootstrapApplication(App, {
+  providers: [
+    provideDalil({
       project: 'myapp',
       publicKey: 'pk_...',
       endpoint: 'https://dalil.example.com/v1/reports',
       apiOrigins: ['https://api.example.com'],
-      enabled: false,                       // turn on after login
+      enabled: false,                       // turn on after login with update() from dalil/web
     }),
-  )
+  ],
 })
 ```
 
 ```ts
-// after login / on logout. update() mounts the widget, so keep it outside the zone too
-this.zone.runOutsideAngular(() =>
-  update({ enabled: true, getContext: () => ({ userId, userName, tenant }) }),
-)
+// app.module.ts (NgModule)
+@NgModule({ providers: [provideDalil({ project: 'myapp', publicKey: 'pk_...', endpoint: '...' })] })
+export class AppModule {}
+```
+
+Read `environment.ts` or an injected service by passing a factory. It runs inside the injection context, so `inject()` works:
+
+```ts
+provideDalil(() => {
+  const auth = inject(Auth) // inject() only works here, at factory time
+  return {
+    project: 'myapp',
+    endpoint: environment.dalilEndpoint,
+    publicKey: environment.dalilKey,
+    getContext: () => ({ userId: auth.userId() }), // runs later, at report time: use the captured service
+  }
+})
+```
+
+- **SSR / hydration:** nothing runs on the server (`isPlatformBrowser` guard), so the server HTML has no Dalil host and hydration is unaffected.
+- **Zoneless:** works with `provideZonelessChangeDetection()`; start timing uses `afterNextRender`.
+- **Start timing:** after the first render, else when the app is first stable, else 5 s after `window` load (apps with polling never become stable).
+- **After login:** `import { update } from 'dalil/web'` and call `update({ enabled: true, getContext })` (keep it in `NgZone.runOutsideAngular`).
+- **Angular 15 and older:** not supported by `provideDalil` (needs `DestroyRef`). Use `dalil/web` by hand, outside the zone (about 15 lines):
+
+```ts
+bootstrapApplication(App, appConfig).then((appRef) => {
+  appRef.injector.get(NgZone).runOutsideAngular(() => init({ project: 'myapp', endpoint: '...', publicKey: '...' }))
+})
 ```
 
 - **HttpClient** uses XHR by default and is captured with no setup: failed status, JSON error bodies, abort and timeout. Add the API host to `apiOrigins` to get `X-Request-Id`.
@@ -104,6 +128,42 @@ export class DalilErrorHandler implements ErrorHandler {
 CSP: `connect-src 'self' https://dalil.example.com https://img.example.com`. No `script-src` change is needed when you import from npm.
 
 A working app with a local 500 server, a headless check and the change-detection measurement is in [`examples/angular`](examples/angular).
+
+### Next.js
+
+`dalil/next` exports a client component. Add it once.
+
+```tsx
+// app/layout.tsx (App Router). The layout stays a server component; DalilClient is the client boundary.
+import { DalilClient } from 'dalil/next'
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        {children}
+        <DalilClient config={{
+          project: 'myapp',
+          publicKey: process.env.NEXT_PUBLIC_DALIL_KEY!,
+          endpoint: process.env.NEXT_PUBLIC_DALIL_ENDPOINT!,
+        }} />
+      </body>
+    </html>
+  )
+}
+```
+
+```tsx
+// pages/_app.tsx (Pages Router)
+import type { AppProps } from 'next/app'
+import { DalilClient } from 'dalil/next'
+
+export default function App({ Component, pageProps }: AppProps) {
+  return (<><Component {...pageProps} /><DalilClient config={{ project: 'myapp', endpoint: process.env.NEXT_PUBLIC_DALIL_ENDPOINT! }} /></>)
+}
+```
+
+Config values must be `NEXT_PUBLIC_*` (they ship to the browser). Do not call `init` in a server component: the recorder needs `window`, and a `config` containing functions (`getContext`) cannot cross the server/client boundary, so build it inside a client component. `dalil/react` also carries `"use client"`, so `DalilProvider` works in App Router client boundaries.
 
 ### Vue
 
@@ -219,7 +279,7 @@ Dalil.init({
 
 **Process notes.** Projects on the *Basic* process have no Repro Steps field: set `bodyField: 'System.Description'`. Azure DevOps must allow browser (CORS) calls from your app's origin; if the org name is wrong or a call is blocked, the browser reports both the same way ("Couldn't reach Azure DevOps org ...").
 
-**`playerUrl`.** The replay file embeds the rrweb player, which Dalil loads from `dist/assets/` next to the widget script (the npm build and `dalil.global.js` both ship it). If your bundler moves the widget somewhere that folder is not served, or a strict CSP blocks the fetch, host `rrweb-player.2.1.7.js` and `.css` yourself and set `playerUrl` to that folder. If the player cannot be loaded the Bug still gets created, with the raw `replay-<time>.json.gz` attached instead.
+**`playerUrl`.** The replay file embeds the rrweb player. Order: `playerUrl` (a folder you host with `rrweb-player.2.1.7.js` and `.css`), then the copy bundled into the npm build (a lazy chunk, loaded only when a replay is built), then `dist/assets/` next to `dalil.global.js` for the script-tag build. Fetched files are validated (an SPA fallback returning `index.html` with status 200 is rejected). If the player cannot be loaded the Bug still gets created, with the raw `replay-<time>.json.gz` attached instead.
 
 ### Try the Azure DevOps mode
 
@@ -228,6 +288,14 @@ A hosted test page lets you try the no-server mode with your own org and a perso
 ## Content-Security-Policy
 
 If the host page sends a `Content-Security-Policy`, add the collector origin to `connect-src`, for example `connect-src 'self' https://dalil.example.com`. Without it the browser blocks the upload; dalil saves the report on the device, retries it on the next page load, and logs a `[dalil] Could not reach the collector...` error in the console.
+
+Styles: inside the shadow root Dalil adopts a constructed stylesheet (`adoptedStyleSheets`), which `style-src` without `'unsafe-inline'` does not block (Chromium, Firefox, Safari 16.4+). Elsewhere (older browsers, `DalilProvider` without `shadow`) it adds a `<style>`; pass your CSP nonce as `cspNonce` so that element is allowed:
+
+```ts
+init({ project: 'myapp', endpoint: '...', cspNonce: document.querySelector('meta[name=csp-nonce]')?.getAttribute('content') ?? undefined })
+```
+
+Needed sources: `connect-src` for the collector (or `https://dev.azure.com` in Azure DevOps mode), `img-src blob: data:` for screenshots. No `script-src` change when imported from npm.
 
 To have images inlined in screenshots, also list the hosts serving those images in `connect-src`, because html-to-image fetches them.
 

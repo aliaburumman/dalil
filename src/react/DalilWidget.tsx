@@ -28,6 +28,8 @@ export interface DalilWidgetProps extends DalilConfig {
   replay?: boolean
   /** Where to inject the stylesheet (default document.head). Pass a ShadowRoot for shadow mounting. */
   styleRoot?: Document | ShadowRoot
+  /** CSP nonce for the fallback <style> element (used when constructed stylesheets are unavailable or in light DOM). */
+  cspNonce?: string
 }
 
 type Chunks = [typeof import('./Dialog'), typeof import('./screenshot')]
@@ -89,6 +91,7 @@ export function DalilWidget(props: DalilWidgetProps) {
     replay = true,
     replaySeconds,
     styleRoot,
+    cspNonce,
     ...config
   } = props
   const adoDest = config.destination?.type === 'azure-devops' ? config.destination : null
@@ -123,8 +126,8 @@ export function DalilWidget(props: DalilWidgetProps) {
   }, [])
 
   useEffect(() => {
-    ensureStyles(styleRoot)
-  }, [styleRoot])
+    ensureStyles(styleRoot, cspNonce)
+  }, [styleRoot, cspNonce])
 
   // Failure-moment screenshots: lazy, only while enabled.
   const autoModRef = useRef<typeof import('./autosnap') | null>(null)

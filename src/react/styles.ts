@@ -71,9 +71,32 @@ export function rootAttrs(a: Appearance): { 'data-theme'?: 'light' | 'dark'; sty
 
 const STYLE_ID = 'dalil-styles'
 
-/** Inject the stylesheet once into `root`: document.head (light DOM, default) or a ShadowRoot. */
-export function ensureStyles(root?: Document | ShadowRoot): void {
+const sheets = new WeakMap<ShadowRoot, true>()
+
+/**
+ * Inject the stylesheet once. In a ShadowRoot, a constructed stylesheet is adopted when supported
+ * (not governed by `style-src`); otherwise, and in the light DOM, a `<style>` is added (with `nonce` if given).
+ */
+export function ensureStyles(root?: Document | ShadowRoot, nonce?: string): void {
   if (typeof document === 'undefined') return
+  const isShadow = typeof ShadowRoot !== 'undefined' && root instanceof ShadowRoot
+  if (isShadow) {
+    if (sheets.has(root)) return
+    try {
+      const proto = ShadowRoot.prototype as unknown as { adoptedStyleSheets?: unknown }
+      if ('adoptedStyleSheets' in proto && typeof CSSStyleSheet !== 'undefined') {
+        const sheet = new CSSStyleSheet()
+        if (typeof sheet.replaceSync === 'function') {
+          sheet.replaceSync(CSS)
+          root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet]
+          sheets.set(root, true)
+          return
+        }
+      }
+    } catch {
+      /* fall back to <style> */
+    }
+  }
   const target: ParentNode | null = root ? root : document.head
   if (!target) return
   const has = root ? root.querySelector(`#${STYLE_ID}`) : document.getElementById(STYLE_ID)
@@ -81,6 +104,7 @@ export function ensureStyles(root?: Document | ShadowRoot): void {
   const el = document.createElement('style')
   el.id = STYLE_ID
   el.setAttribute('data-dalil-ignore', '')
+  if (nonce) el.setAttribute('nonce', nonce)
   el.textContent = CSS
   target.appendChild(el)
 }
